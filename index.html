@@ -194,7 +194,7 @@ const p1=mkP(2.5,3.5),p2=mkP(4.5,4.5);
 const pls=[p1,p2];
 
 const keys={},jp={};
-window.addEventListener('keydown',e=>{const k=e.key.toLowerCase();if(!keys[k])jp[k]=true;keys[k]=true;e.preventDefault()});
+window.addEventListener('keydown',e=>{if(document.activeElement.tagName==='INPUT')return;const k=e.key.toLowerCase();if(!keys[k])jp[k]=true;keys[k]=true;e.preventDefault()});
 window.addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false});
 
 function spawnCel(gx,gy){const{x,y}=g2s(gx,gy);const em=['🎉','⭐','✨','🎯','💯','🔥','📊'];for(let i=0;i<12;i++)particles.push({x,y:y-10,vx:(Math.random()-.5)*120,vy:-Math.random()*100-40,life:1+Math.random()*.8,ml:1+Math.random()*.8,em:em[Math.floor(Math.random()*em.length)],sz:10+Math.random()*10,g:60})}

@@ -22,9 +22,7 @@ const rooms = new Map(); // roomCode -> { host: ws, guest: ws }
 
 function generateCode() {
   const words = ['INSIGHT', 'NUDGE', 'ANCHOR', 'BIAS', 'PRIME', 'FRAME', 'HEURISTIC', 'DEFAULT'];
-  const word = words[Math.floor(Math.random() * words.length)];
-  const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; let num = ''; for(let i=0;i<4;i++) num += letters[Math.floor(Math.random()*letters.length)];
-  return `${word}-${num}`;
+  return words[Math.floor(Math.random() * words.length)];
 }
 
 wss.on('connection', (ws) => {
