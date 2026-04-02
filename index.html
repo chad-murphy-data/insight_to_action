@@ -261,7 +261,20 @@ function getState(){
 }
 function applyState(d){
   if(!d)return;
-  Object.assign(p1,d.p1);Object.assign(p2,d.p2);score=d.score;
+  // Lerp factor: blend server state with local prediction to avoid snapping
+  const L=0.4;
+  // P1 is always server-authoritative (host controls P1)
+  Object.assign(p1,d.p1);
+  // P2: blend position if guest is predicting locally
+  if(role==='guest'){
+    p2.gx+=(d.p2.gx-p2.gx)*L;
+    p2.gy+=(d.p2.gy-p2.gy)*L;
+    p2.vx=d.p2.vx;p2.vy=d.p2.vy;
+    p2.dir=d.p2.dir;p2.fr=d.p2.fr;p2.mv=d.p2.mv;p2.carry=d.p2.carry;
+  } else {
+    Object.assign(p2,d.p2);
+  }
+  score=d.score;
   d.sta.forEach((sd,i)=>{STA[i].items=sd.items});
 }
 
@@ -277,9 +290,12 @@ function update(){
     guestInput.act=false; // consume the action
     // Send state every 2 frames (~30fps updates)
     frameCount++;
-    if(frameCount%2===0) sendState(getState());
+    sendState(getState());
   } else if(role==='guest'){
-    // Guest sends input, receives state
+    // Guest-side prediction: run local physics so movement feels instant
+    updPl(p2,keys['w']||keys['arrowup']||keys['i'],keys['s']||keys['arrowdown']||keys['k'],
+      keys['a']||keys['arrowleft']||keys['j'],keys['d']||keys['arrowright']||keys['l'],
+      !!jp[' ']||!!jp['enter']);
     sendInput({up:keys['w']||keys['arrowup']||keys['i'],down:keys['s']||keys['arrowdown']||keys['k'],
       left:keys['a']||keys['arrowleft']||keys['j'],right:keys['d']||keys['arrowright']||keys['l'],
       act:!!jp[' ']||!!jp['enter']});
