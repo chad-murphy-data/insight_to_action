@@ -25,6 +25,7 @@
   .key{display:inline-block;background:#2a2a4e;border:1px solid #444466;border-radius:3px;padding:1px 5px;font-family:'Press Start 2P',monospace;font-size:7px;color:#ccccdd}
   #hud{margin-top:6px;display:flex;gap:20px;font-size:12px}
   .hv{color:#f0c040;font-weight:bold}
+  .mbtn{font-family:"Press Start 2P",monospace;font-size:16px;width:50px;height:50px;border:2px solid #f0c040;background:#2a2a4e;color:#f0c040;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center}  .mbtn:active,.mbtn.pressed{background:#f0c04044}  @media(pointer:coarse){#mobile-controls{display:flex!important}}
 </style>
 </head>
 <body>
@@ -59,6 +60,7 @@
     <span class="p2c">Employee: <span class="hv" id="p2c">—</span></span>
   </div>
 </div>
+  <!-- Mobile Controls -->  <div id="mobile-controls" style="display:none;margin-top:12px;user-select:none;-webkit-user-select:none;touch-action:none">    <div style="display:flex;align-items:center;gap:20px">      <div style="display:grid;grid-template-columns:50px 50px 50px;grid-template-rows:50px 50px 50px;gap:4px">        <div></div>        <button class="mbtn" data-key="w">&#9650;</button>        <div></div>        <button class="mbtn" data-key="a">&#9664;</button>        <button class="mbtn" data-key="s">&#9660;</button>        <button class="mbtn" data-key="d">&#9654;</button>      </div>      <button class="mbtn act-btn" data-key=" " style="width:80px;height:80px;border-radius:50%;font-size:14px">ACT</button>    </div>  </div>
 
 <script>
 // ==================== CONFIGURATION ====================
@@ -318,6 +320,7 @@ function gameLoop(){update();render();requestAnimationFrame(gameLoop)}
 document.getElementById('game-container').addEventListener('dblclick', () => {
   if (!connected && !role) { role = null; startGame(); }
 });
+// Mobile touch controlsdocument.querySelectorAll(".mbtn").forEach(btn=>{  const k=btn.dataset.key;  btn.addEventListener("touchstart",e=>{e.preventDefault();keys[k]=true;jp[k]=true;btn.classList.add("pressed")},{passive:false});  btn.addEventListener("touchend",e=>{e.preventDefault();keys[k]=false;btn.classList.remove("pressed")},{passive:false});  btn.addEventListener("mousedown",e=>{keys[k]=true;jp[k]=true;btn.classList.add("pressed")});  btn.addEventListener("mouseup",e=>{keys[k]=false;btn.classList.remove("pressed")});});
 </script>
 </body>
 </html>
