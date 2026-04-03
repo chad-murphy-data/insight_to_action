@@ -35,6 +35,8 @@
   <h1>INSIGHT KITCHEN</h1>
   <p>A BeSci Overcooked game for virtual onsites</p>
   <div style="margin:30px 0">
+    <button class="btn" id="btn-bot" onclick="playWithBot()">Play with Bot 🤖</button>
+    <p style="font-size:11px;color:#555">— or play online —</p>
     <button class="btn" id="btn-create" onclick="createRoom()">Create Room</button>
     <p style="font-size:11px;color:#555">— or —</p>
     <input type="text" id="code-input" placeholder="Enter room code" maxlength="16"/>
@@ -73,6 +75,10 @@ let ws = null;
 let role = null; // 'host' or 'guest'
 let connected = false;
 let guestInput = { up:false, down:false, left:false, right:false, act:false };
+let botActive = false;
+let botInterval = null;
+let botState = 'IDLE';
+let botActCooldown = 0;
 
 function setStatus(msg) { document.getElementById('status').textContent = msg; }
 
@@ -93,6 +99,7 @@ function connectWS() {
         case 'guest_joined':
           setStatus('Player 2 connected! Starting game...');
           connected = true;
+          stopBot(); // hand off to human
           setTimeout(() => startGame(), 500);
           break;
         case 'joined':
@@ -281,7 +288,7 @@ function applyState(d){
 let frameCount = 0;
 function update(){
   spT+=.016;const ib=fSta('INBOX');if(spT>=SPI&&ib.items.length<3){ib.items.push({t:'RAW',p:false,pr:0});spT=0}
-  for(const s of STA)for(const it of s.items){if(it.p&&s.pt>0){it.pr+=.016;if(it.pr>=s.pt){const nt=ITEMS[it.t].next;if(nt){it.p=false;it.rdy=true;it.rt=nt;it.t=nt}}}}
+  for(const s of STA)for(const it of s.items){if(it.p){if(s.pt<=0){const nt=ITEMS[it.t].next;if(nt){it.p=false;it.rdy=true;it.rt=nt;it.t=nt}}else{it.pr+=.016;if(it.pr>=s.pt){const nt=ITEMS[it.t].next;if(nt){it.p=false;it.rdy=true;it.rt=nt;it.t=nt}}}}}
 
   if(role==='host'){
     // Host controls P1 locally, reads guest input for P2
@@ -300,16 +307,23 @@ function update(){
       left:keys['a']||keys['arrowleft']||keys['j'],right:keys['d']||keys['arrowright']||keys['l'],
       act:!!jp[' ']||!!jp['enter']});
   } else {
-    // Local mode (solo testing) — both on one keyboard
+    // Local mode (solo testing)
     updPl(p1,keys['w'],keys['s'],keys['a'],keys['d'],!!jp[' ']);
-    updPl(p2,keys['i'],keys['k'],keys['j'],keys['l'],!!jp['enter']);
+    if (botActive) {
+      // Bot controls P2 via guestInput
+      updPl(p2,guestInput.up,guestInput.down,guestInput.left,guestInput.right,guestInput.act);
+      guestInput.act = false; // consume act
+    } else {
+      // Manual P2 on keyboard
+      updPl(p2,keys['i'],keys['k'],keys['j'],keys['l'],!!jp['enter']);
+    }
   }
 
   for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.vy+=p.g*.016;p.x+=p.vx*.016;p.y+=p.vy*.016;p.life-=.016;if(p.life<=0)particles.splice(i,1)}
   for(const k in jp)delete jp[k];
   document.getElementById('score').textContent=score;
   document.getElementById('p1c').textContent=p1.carry?ITEMS[p1.carry.t].name:'—';
-  document.getElementById('p2c').textContent=p2.carry?ITEMS[p2.carry.t].name:'—';
+  document.getElementById('p2c').textContent=(botActive?'🤖 ':'')+(p2.carry?ITEMS[p2.carry.t].name:'—');
 }
 
 function render(){
@@ -321,7 +335,9 @@ function render(){
   for(const p of[p1,p2])for(const s of STA){const d=gd(p.gx,p.gy,s.gx+.5,s.gy+.5);if(d<IR){const{x,y}=g2s(s.gx,s.gy);ctx.save();ctx.font='8px "Press Start 2P",monospace';ctx.textAlign='center';ctx.fillStyle=p===p1?'#88bbff':'#ffbb88';ctx.globalAlpha=.6+.3*Math.sin(Date.now()/250);ctx.fillText(p===p1?'[SPACE]':'[ACT]',x+(p===p1?-15:15),y-32);ctx.restore();}}
   for(const p of particles){ctx.save();ctx.globalAlpha=Math.max(0,p.life/p.ml);ctx.font=p.sz+'px sans-serif';ctx.textAlign='center';ctx.fillText(p.em,p.x,p.y);ctx.restore();}
   // Network indicator
-  ctx.save();ctx.font='9px Outfit,sans-serif';ctx.textAlign='right';ctx.fillStyle=connected?'#4a4':'#a44';ctx.fillText(connected?(role==='host'?'● HOST':'● GUEST'):'● LOCAL',CW-10,16);ctx.restore();
+  ctx.save();ctx.font='9px Outfit,sans-serif';ctx.textAlign='right';ctx.fillStyle=connected?'#4a4':'#a44';ctx.fillText(connected?(role==='host'?'● HOST':'● GUEST'):'● LOCAL',CW-10,16);
+  if(botActive){ctx.fillStyle='#f0c040';ctx.fillText('🤖 BOT ACTIVE',CW-10,30);}
+  ctx.restore();
 }
 
 function startGame(){
@@ -336,6 +352,132 @@ function gameLoop(){update();render();requestAnimationFrame(gameLoop)}
 document.getElementById('game-container').addEventListener('dblclick', () => {
   if (!connected && !role) { role = null; startGame(); }
 });
+
+// ==================== BOT AI ====================
+function playWithBot() {
+  role = null;
+  botActive = true;
+  startGame();
+  startBot();
+}
+
+function startBot() {
+  if (botInterval) clearInterval(botInterval);
+  botActive = true;
+  botActCooldown = 0;
+  botInterval = setInterval(botThink, 50);
+  console.log('[BOT] Started — 🤖 ACTIVE');
+}
+
+function stopBot() {
+  if (botInterval) { clearInterval(botInterval); botInterval = null; }
+  botActive = false;
+  guestInput = { up:false, down:false, left:false, right:false, act:false };
+  console.log('[BOT] Stopped — human took over');
+}
+
+function botThink() {
+  if (!botActive) return;
+  // Decrease act cooldown
+  if (botActCooldown > 0) botActCooldown -= 50;
+
+  // Reset inputs each tick
+  guestInput.up = false;
+  guestInput.down = false;
+  guestInput.left = false;
+  guestInput.right = false;
+  guestInput.act = false;
+
+  const prevState = botState;
+
+  if (p2.carry) {
+    // DELIVER: find the station to bring this item to
+    botState = 'DELIVER';
+    const carryType = p2.carry.t;
+    const info = ITEMS[carryType];
+    let targetStation = null;
+
+    if (carryType === 'DONE') {
+      // Deliver finished item to DELIVERY for scoring
+      targetStation = fSta('DELIVERY');
+    } else if (info.next) {
+      // Find the station that is home to the next item type
+      const nextInfo = ITEMS[info.next];
+      if (nextInfo) targetStation = fSta(nextInfo.st);
+    }
+
+    if (targetStation) {
+      botNavigate(targetStation.gx + 0.5, targetStation.gy + 0.5);
+    }
+  } else {
+    // FETCH: find a ready item to pick up
+    let bestStation = null;
+    let bestScore = -Infinity;
+
+    for (const s of STA) {
+      const pickable = s.items.filter(i => !i.p && (i.rdy || s.n === 'INBOX'));
+      if (pickable.length === 0) continue;
+
+      // Skip if P1 is already adjacent and could grab it
+      const p1dist = gd(p1.gx, p1.gy, s.gx + 0.5, s.gy + 0.5);
+      if (p1dist < 1.2 && !p1.carry) continue;
+
+      // Prefer ready items; score by how few items are queued at the NEXT station
+      let sc = 10;
+      const sample = pickable[0];
+      const sampleType = sample.rdy ? sample.rt : sample.t;
+      const sampleInfo = ITEMS[sampleType];
+      if (sample.rdy) sc += 20; // strongly prefer ready items
+      if (sampleInfo && sampleInfo.next) {
+        const nextSta = fSta(ITEMS[sampleInfo.next]?.st);
+        if (nextSta) sc -= nextSta.items.length * 5; // prefer least busy destination
+      }
+      // Closer is better
+      const dist = gd(p2.gx, p2.gy, s.gx + 0.5, s.gy + 0.5);
+      sc -= dist * 2;
+
+      if (sc > bestScore) { bestScore = sc; bestStation = s; }
+    }
+
+    if (bestStation) {
+      botState = 'FETCH';
+      botNavigate(bestStation.gx + 0.5, bestStation.gy + 0.5);
+    } else {
+      botState = 'IDLE';
+    }
+  }
+
+  if (prevState !== botState) {
+    console.log(`[BOT] ${prevState} → ${botState}` + (p2.carry ? ` (carrying ${p2.carry.t})` : ''));
+  }
+}
+
+function botNavigate(tx, ty) {
+  // Clamp target to grid bounds (same as physics: MN=0.3, MX=GC-0.7, MY=GR-0.7)
+  const MN = 0.3, MX = GC - 0.7, MY = GR - 0.7;
+  tx = Math.max(MN + 0.1, Math.min(MX - 0.1, tx));
+  ty = Math.max(MN + 0.1, Math.min(MY - 0.1, ty));
+
+  const dx = tx - p2.gx;
+  const dy = ty - p2.gy;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+
+  if (dist < 0.8) {
+    // Arrived — press act once then cooldown
+    if (botActCooldown <= 0) {
+      guestInput.act = true;
+      botActCooldown = 300; // don't spam act
+      console.log(`[BOT] ACT at (${p2.gx.toFixed(1)}, ${p2.gy.toFixed(1)})`);
+    }
+    return;
+  }
+
+  // Move toward target with deadzone
+  if (dx > 0.15) guestInput.right = true;
+  if (dx < -0.15) guestInput.left = true;
+  if (dy > 0.15) guestInput.down = true;
+  if (dy < -0.15) guestInput.up = true;
+}
 // Mobile touch controlsdocument.querySelectorAll(".mbtn").forEach(btn=>{  const k=btn.dataset.key;  btn.addEventListener("touchstart",e=>{e.preventDefault();keys[k]=true;jp[k]=true;btn.classList.add("pressed")},{passive:false});  btn.addEventListener("touchend",e=>{e.preventDefault();keys[k]=false;btn.classList.remove("pressed")},{passive:false});  btn.addEventListener("mousedown",e=>{keys[k]=true;jp[k]=true;btn.classList.add("pressed")});  btn.addEventListener("mouseup",e=>{keys[k]=false;btn.classList.remove("pressed")});});
 </script>
 </body>
