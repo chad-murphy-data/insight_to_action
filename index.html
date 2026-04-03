@@ -168,7 +168,7 @@ const ctx = canvas.getContext('2d');
 const CW=1100,CH=750,TW=120,TH=60,GC=8,GR=8;
 const ACCEL=12,FRIC=4.5,MSPD=3.8,BNC=0.3,AFPS=10;
 canvas.width=CW;canvas.height=CH;
-const FC=8,FR=4,FW=60,FH=112,SS=1.45,DW=FW*SS,DH=FH*SS;
+const FC=8,FR=4,FW=60,FH=112,SS=1.15,DW=FW*SS,DH=FH*SS;
 const DIR={DL:0,UL:1,UR:2,DR:3};
 const s1=new Image();s1.src='owner.png';
 const s2=new Image();s2.src='employee.png';
@@ -243,7 +243,7 @@ function dSta(s){
 }
 
 function dPl(p,sp,ok){
-  const{x,y}=g2s(p.gx,p.gy);ctx.save();ctx.globalAlpha=.25;ctx.fillStyle='#000';ctx.beginPath();ctx.ellipse(x,y+TH/2+5,28,11,0,0,Math.PI*2);ctx.fill();ctx.restore();
+  const{x,y}=g2s(p.gx,p.gy);ctx.save();ctx.globalAlpha=.25;ctx.fillStyle='#000';ctx.beginPath();ctx.ellipse(x,y+TH/2+4,22,9,0,0,Math.PI*2);ctx.fill();ctx.restore();
   if(ok)ctx.drawImage(sp,p.fr*FW,p.dir*FH,FW,FH,x-DW/2,y+TH/2-DH+10,DW,DH);
   else{ctx.beginPath();ctx.arc(x,y+TH/2,16,0,Math.PI*2);ctx.fillStyle='#f0c040';ctx.fill();}
   if(p.carry){const inf=ITEMS[p.carry.t],bob=Math.sin(Date.now()/300)*3;ctx.save();ctx.beginPath();ctx.arc(x,y-DH/2-8+bob,14,0,Math.PI*2);ctx.fillStyle=inf.color+'cc';ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();ctx.font='14px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(inf.sym,x,y-DH/2-7+bob);ctx.restore();}
