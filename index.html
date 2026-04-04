@@ -80,6 +80,7 @@ let botActive = false;
 let botInterval = null;
 let botState = 'IDLE';
 let botActCooldown = 0;
+const BOT_SPEED = 0.6; // fraction of player max speed
 
 function setStatus(msg) { document.getElementById('status').textContent = msg; }
 
@@ -193,6 +194,29 @@ sb.onload=()=>{
 function g2s(gx,gy){return{x:CW/2+(gx-gy)*(TW/2),y:155+(gx+gy)*(TH/2)}}
 function gd(ax,ay,bx,by){return Math.sqrt((ax-bx)**2+(ay-by)**2)}
 
+const RECIPES = {
+  QUICK_STAT: {
+    name: 'Quick Stat', points: 1, color: '#88bbff', emoji: '📈',
+    steps: ['INBOX', 'DELIVERY']
+  },
+  FULL_READOUT: {
+    name: 'Full Readout', points: 2, color: '#f0c040', emoji: '📊',
+    steps: ['INBOX', 'ANALYSIS', 'DELIVERY']
+  },
+  PSYCH_INSTRUMENT: {
+    name: 'Psych Instrument', points: 3, color: '#ff8c42', emoji: '🧠',
+    steps: ['INBOX', 'ANALYSIS', 'DECK BUILDER', 'DELIVERY']
+  },
+  FRAMEWORK_DECK: {
+    name: 'Framework Deck', points: 4, color: '#d4a843', emoji: '🏗️',
+    steps: ['INBOX', 'ANALYSIS', 'DECK BUILDER', 'FEEDBACK', 'DELIVERY']
+  }
+};
+let orders = [];
+const MAX_ORDERS = 3, ORDER_INTERVAL = 15;
+let orderTimer = 0;
+const orderFlashes = []; // {x,y,life,ml}
+
 const ITEMS={
   RAW:{name:'Raw Insight',color:'#e07040',sym:'📋',next:'ANA',st:'INBOX'},
   ANA:{name:'Analyzed',color:'#40a0e0',sym:'📊',next:'DRAFT',st:'ANALYSIS'},
@@ -281,14 +305,60 @@ function dPl(p,sp,ok){
 function interact(p){
   let nr=null,nd=Infinity;for(const s of STA){const d=gd(p.gx,p.gy,s.gx+.5,s.gy+.5);if(d<IR&&d<nd){nr=s;nd=d;}}
   if(!nr)return;
-  if(p.carry){const inf=ITEMS[p.carry.t];
-    if(nr.n==='DELIVERY'&&p.carry.t==='DONE'){const pts=Math.max(0,1+(p.carry.bonus||0));score+=pts;spawnCel(nr.gx,nr.gy);p.carry=null;}
-    // FEEDBACK/COPILOT: accept any non-DONE item for optional processing (queue depth 1)
-    else if((nr.n==='FEEDBACK'||nr.n==='COPILOT')&&p.carry.t!=='DONE'&&nr.items.length<(nr.maxQ||99)){nr.items.push({t:p.carry.t,p:true,pr:0,bonus:p.carry.bonus||0});p.carry=null;if(nr.n==='FEEDBACK')fbFrozen=p;}
-    else if(inf.st===nr.n){nr.items.push({t:p.carry.t,p:false,pr:0,bonus:p.carry.bonus||0});p.carry=null;}
-    else{const exp=Object.keys(ITEMS).find(k=>ITEMS[k].st===nr.n);if(exp&&inf.next===exp){nr.items.push({t:p.carry.t,p:true,pr:0,bonus:p.carry.bonus||0});p.carry=null;if(nr.n==='FEEDBACK')fbFrozen=p;}}
+  if(p.carry){
+    const rc=p.carry.recipe?RECIPES[p.carry.recipe]:null;
+    const steps=rc?rc.steps:null;
+    const si=p.carry.stepIdx||0;
+    const nextStep=steps?steps[si+1]:null;
+
+    if(nr.n==='DELIVERY'){
+      // Deliver if DELIVERY is the next step (or no recipe / legacy)
+      if(!steps||nextStep==='DELIVERY'){
+        const pts=rc?Math.max(0,rc.points+(p.carry.bonus||0)):Math.max(0,1+(p.carry.bonus||0));
+        score+=pts;spawnCel(nr.gx,nr.gy);
+        // Fulfill matching order
+        if(p.carry.recipe){const oi=orders.findIndex(o=>o.recipe===p.carry.recipe);if(oi>=0)orders.splice(oi,1);}
+        p.carry=null;
+      }
+    }
+    // COPILOT: optional detour, accept if not at queue limit
+    else if(nr.n==='COPILOT'&&nr.items.length<(nr.maxQ||99)&&p.carry.t!=='DONE'){
+      nr.items.push({t:p.carry.t,p:true,pr:0,bonus:p.carry.bonus||0,recipe:p.carry.recipe,stepIdx:si});p.carry=null;
+    }
+    // Recipe-guided routing: drop at next step station
+    else if(steps&&nextStep===nr.n){
+      // Processing station — item needs processing time
+      const sta=fSta(nr.n);const needsProc=sta.pt>0;
+      nr.items.push({t:p.carry.t,p:needsProc,pr:0,bonus:p.carry.bonus||0,recipe:p.carry.recipe,stepIdx:si+1});
+      p.carry=null;
+      if(nr.n==='FEEDBACK')fbFrozen=p;
+    }
+    // No recipe — legacy fallback (shouldn't happen often)
+    else if(!steps){
+      const inf=ITEMS[p.carry.t];
+      if((nr.n==='FEEDBACK')&&p.carry.t!=='DONE'&&nr.items.length<(nr.maxQ||99)){nr.items.push({t:p.carry.t,p:true,pr:0,bonus:p.carry.bonus||0});p.carry=null;fbFrozen=p;}
+      else if(inf.st===nr.n){nr.items.push({t:p.carry.t,p:false,pr:0});p.carry=null;}
+      else{const exp=Object.keys(ITEMS).find(k=>ITEMS[k].st===nr.n);if(exp&&inf.next===exp){nr.items.push({t:p.carry.t,p:true,pr:0});p.carry=null;if(nr.n==='FEEDBACK')fbFrozen=p;}}
+    }
   } else {
-    if(nr.items.length>0){let pi=nr.items.findIndex(i=>!i.p&&i.rdy);if(pi===-1)pi=nr.items.findIndex(i=>!i.p);if(pi>=0){const it=nr.items.splice(pi,1)[0];p.carry={t:it.rdy?it.rt:it.t,bonus:it.bonus||0};}}
+    // Pickup
+    if(nr.items.length>0){
+      let pi=nr.items.findIndex(i=>!i.p&&i.rdy);
+      if(pi===-1)pi=nr.items.findIndex(i=>!i.p);
+      if(pi>=0){
+        const it=nr.items.splice(pi,1)[0];
+        const pickType=it.rdy?it.rt:it.t;
+        if(nr.n==='INBOX'&&!it.recipe){
+          // Assign a recipe from active orders (prefer highest points)
+          let bestOrder=null,bestPts=-1;
+          for(const o of orders){const r=RECIPES[o.recipe];if(r.points>bestPts){bestPts=r.points;bestOrder=o;}}
+          p.carry={t:pickType,bonus:it.bonus||0,recipe:bestOrder?bestOrder.recipe:null,stepIdx:0};
+        } else {
+          // Carry forward recipe/stepIdx from station item
+          p.carry={t:pickType,bonus:it.bonus||0,recipe:it.recipe||null,stepIdx:it.stepIdx||0};
+        }
+      }
+    }
   }
 }
 
@@ -336,6 +406,13 @@ function applyState(d){
 let frameCount = 0;
 function update(){
   spT+=.016;const ib=fSta('INBOX');if(spT>=SPI&&ib.items.length<3){ib.items.push({t:'RAW',p:false,pr:0});spT=0}
+  // Order spawning
+  orderTimer+=.016;
+  if(orders.length===0&&orderTimer<ORDER_INTERVAL){const rk=Object.keys(RECIPES);orders.push({id:Date.now(),recipe:rk[Math.floor(Math.random()*rk.length)],timeLimit:60,elapsed:0});orderTimer=0;}
+  if(orderTimer>=ORDER_INTERVAL&&orders.length<MAX_ORDERS){const rk=Object.keys(RECIPES);orders.push({id:Date.now(),recipe:rk[Math.floor(Math.random()*rk.length)],timeLimit:60,elapsed:0});orderTimer=0;}
+  // Order timers and expiry
+  for(let i=orders.length-1;i>=0;i--){orders[i].elapsed+=.016;if(orders[i].elapsed>=orders[i].timeLimit){const ci=i;orderFlashes.push({idx:ci,life:.3,ml:.3});orders.splice(i,1);}}
+  for(let i=orderFlashes.length-1;i>=0;i--){orderFlashes[i].life-=.016;if(orderFlashes[i].life<=0)orderFlashes.splice(i,1);}
   for(const s of STA)for(const it of s.items){if(it.p){if(s.pt<=0){const nt=ITEMS[it.t].next;if(nt){it.p=false;it.rdy=true;it.rt=nt;it.t=nt}}else{it.pr+=.016;if(it.pr>=s.pt){const nt=ITEMS[it.t].next;if(nt){it.p=false;it.rdy=true;it.rt=nt;it.t=nt;
     // FEEDBACK: always +1, unfreeze player
     if(s.n==='FEEDBACK'){it.bonus=1;staFloats.push({gx:s.gx,gy:s.gy,text:'⬆️+1',color:'#4f4',life:1,ml:1});fbFrozen=null;}
@@ -367,6 +444,8 @@ function update(){
         // Bot controls P2 via guestInput
         updPl(p2,guestInput.up,guestInput.down,guestInput.left,guestInput.right,guestInput.act);
         guestInput.act = false; // consume act
+        // Cap bot speed
+        const bs=Math.sqrt(p2.vx**2+p2.vy**2);if(bs>MSPD*BOT_SPEED){p2.vx*=MSPD*BOT_SPEED/bs;p2.vy*=MSPD*BOT_SPEED/bs;}
       } else {
         // Manual P2 on keyboard
         updPl(p2,keys['i'],keys['k'],keys['j'],keys['l'],!!jp['enter']);
@@ -388,6 +467,32 @@ function update(){
 function render(){
   ctx.clearRect(0,0,CW,CH);ctx.fillStyle='#1a1a2e';ctx.fillRect(0,0,CW,CH);
   for(let r=0;r<GR;r++)for(let c=0;c<GC;c++)dTile(c,r);
+  // Order cards (top-left overlay)
+  const OW=180,OH=64,OX=16,OY=16,OG=8;
+  for(let i=0;i<orders.length;i++){
+    const o=orders[i],r=RECIPES[o.recipe],cy=OY+i*(OH+OG);
+    const pct=(o.timeLimit-o.elapsed)/o.timeLimit;
+    // Card bg
+    ctx.save();ctx.fillStyle='#1a1a2eee';ctx.strokeStyle=r.color;ctx.lineWidth=2;
+    ctx.beginPath();ctx.roundRect(OX,cy,OW,OH,6);ctx.fill();ctx.stroke();
+    // Emoji + name
+    ctx.font='10px "Press Start 2P",monospace';ctx.textAlign='left';ctx.fillStyle=r.color;
+    ctx.fillText(r.emoji+' '+r.name,OX+8,cy+18);
+    // Points
+    ctx.font='8px "Outfit",sans-serif';ctx.fillStyle='#888';
+    ctx.fillText(r.points+' pts',OX+8,cy+32);
+    // Pipeline steps
+    ctx.font='7px "Outfit",sans-serif';ctx.fillStyle='#666';
+    ctx.fillText(r.steps.join(' → '),OX+8,cy+46);
+    // Timer bar (right side, vertical)
+    const bx=OX+OW-16,by_=cy+8,bw=8,bh=48;
+    ctx.fillStyle='#333';ctx.fillRect(bx,by_,bw,bh);
+    ctx.fillStyle=pct<.2?'#f44':r.color;
+    ctx.fillRect(bx,by_+bh*(1-pct),bw,bh*pct);
+    ctx.restore();
+  }
+  // Expiry flash
+  for(const f of orderFlashes){const cy=OY+f.idx*(OH+OG);ctx.save();ctx.globalAlpha=f.life/f.ml*.6;ctx.fillStyle='#f44';ctx.beginPath();ctx.roundRect(OX,cy,OW,OH,6);ctx.fill();ctx.restore();}
   const dr=[];for(const s of STA)dr.push({d:s.gx+s.gy,f:()=>dSta(s)});
   dr.push({d:p1.gx+p1.gy,f:()=>dPl(p1,s1,s1ok)});dr.push({d:p2.gx+p2.gy,f:()=>dPl(p2,s2,s2ok)});
   dr.sort((a,b)=>a.d-b.d);for(const d of dr)d.f();
@@ -463,52 +568,51 @@ function botThink() {
   }
 
   if (p2.carry) {
-    // DELIVER: find the station to bring this item to
+    // DELIVER: route by recipe steps
     botState = 'DELIVER';
-    const carryType = p2.carry.t;
-    const info = ITEMS[carryType];
     let targetStation = null;
+    const rc = p2.carry.recipe ? RECIPES[p2.carry.recipe] : null;
+    const steps = rc ? rc.steps : null;
+    const si = p2.carry.stepIdx || 0;
 
-    if (carryType === 'DONE') {
-      // Route DONE through COPILOT for bonus gamble if it has room, otherwise deliver
-      const copilot = fSta('COPILOT');
-      if (copilot && copilot.items.length < (copilot.maxQ||99)) {
-        targetStation = copilot;
-      } else {
-        targetStation = fSta('DELIVERY');
-      }
-    }
-    if (!targetStation && info.next) {
-      // Find the station that is home to the next item type
-      const nextInfo = ITEMS[info.next];
-      if (nextInfo) targetStation = fSta(nextInfo.st);
+    if (steps && si + 1 < steps.length) {
+      const nextStep = steps[si + 1];
+      targetStation = fSta(nextStep);
+    } else if (steps) {
+      // Last step should be DELIVERY
+      targetStation = fSta('DELIVERY');
+    } else {
+      // No recipe fallback — follow item pipeline
+      const info = ITEMS[p2.carry.t];
+      if (p2.carry.t === 'DONE') targetStation = fSta('DELIVERY');
+      else if (info && info.next) { const ni = ITEMS[info.next]; if (ni) targetStation = fSta(ni.st); }
     }
 
     if (targetStation) {
       botNavigate(targetStation.gx + 0.5, targetStation.gy + 0.5);
     }
   } else {
-    // FETCH: find a ready item to pick up
+    // FETCH: find a ready item to pick up, or go to INBOX for new order
     let bestStation = null;
     let bestScore = -Infinity;
 
     for (const s of STA) {
       const pickable = s.items.filter(i => !i.p && (i.rdy || s.n === 'INBOX'));
       if (pickable.length === 0) continue;
+      // Only pick from INBOX if there are active orders
+      if (s.n === 'INBOX' && orders.length === 0) continue;
 
       // Skip if P1 is already adjacent and could grab it
       const p1dist = gd(p1.gx, p1.gy, s.gx + 0.5, s.gy + 0.5);
       if (p1dist < 1.2 && !p1.carry) continue;
 
-      // Prefer ready items; score by how few items are queued at the NEXT station
       let sc = 10;
       const sample = pickable[0];
-      const sampleType = sample.rdy ? sample.rt : sample.t;
-      const sampleInfo = ITEMS[sampleType];
       if (sample.rdy) sc += 20; // strongly prefer ready items
-      if (sampleInfo && sampleInfo.next) {
-        const nextSta = fSta(ITEMS[sampleInfo.next]?.st);
-        if (nextSta) sc -= nextSta.items.length * 5; // prefer least busy destination
+      // Prefer INBOX when high-value orders available
+      if (s.n === 'INBOX' && orders.length > 0) {
+        const bestPts = Math.max(...orders.map(o => RECIPES[o.recipe].points));
+        sc += bestPts * 3;
       }
       // Closer is better
       const dist = gd(p2.gx, p2.gy, s.gx + 0.5, s.gy + 0.5);
