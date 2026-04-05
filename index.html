@@ -168,16 +168,62 @@ function sendInput(input) {
 // ==================== GAME ENGINE ====================
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
-const CW=1100,CH=750,TW=120,TH=60,GC=8,GR=8;
+// Fit the canvas to the window. Grid extents: width=(GC+GR)/2*TW, height=(GC+GR)/2*TH.
+// Compute TW and TH INDEPENDENTLY so the grid fills both dimensions of the
+// canvas rather than being locked to a 2:1 isometric ratio (which wastes space
+// on wider-than-2:1 screens).
+const GC=12,GR=10;
+const CW=Math.min(Math.max(window.innerWidth-20,1000),1920);
+const CH=Math.min(Math.max(window.innerHeight-110,600),1080);
+// Top margin must leave room for character head above the topmost row.
+// Character DH ~= 2.15 * TH, so heads extend ~1.15 * TH above tile tops.
+// Use 100px margin — enough for any tile size up to ~TH=85.
+const TOP_MARGIN=100,SIDE_MARGIN=10,BOTTOM_MARGIN=10;
+const _availW=CW-SIDE_MARGIN*2,_availH=CH-TOP_MARGIN-BOTTOM_MARGIN;
+const _halfSum=(GC+GR)/2;
+const TW=Math.floor(_availW/_halfSum);
+const TH=Math.floor(_availH/_halfSum);
+const GRID_Y_OFFSET=TOP_MARGIN+Math.floor((_availH-_halfSum*TH)/2);
 const ACCEL=12,FRIC=4.5,MSPD=3.8,BNC=0.3,AFPS=10;
-const BARRIER_COL=3.7; // gx threshold: p1 stays <=, p2 stays >=
+const BARRIER_COL=5.7; // gx threshold: p1 stays <=, p2 stays >=
 canvas.width=CW;canvas.height=CH;
-const FC=8,FR=4,FW=60,FH=112,SS=1.15,DW=FW*SS,DH=FH*SS;
+// Character sprite scale scales with tile size (reference TH=60 -> SS=1.15)
+const FC=8,FR=4,FW=60,FH=112,SS=1.15*(TH/60),DW=FW*SS,DH=FH*SS;
 const DIR={DL:0,UL:1,UR:2,DR:3};
 const s1=new Image();s1.src='owner.png';
 const s2=new Image();s2.src='employee.png';
 const sb=new Image();sb.src='boss.png';
 let s1ok=false,s2ok=false,sbok=false;s1.onload=()=>{s1ok=true};s2.onload=()=>{s2ok=true};
+
+// ==================== GENERATED SPRITES ====================
+// Station sprites (keyed by STA .n field)
+const STATION_FILES={
+  'INBOX':'inbox_station_sprite','ANALYSIS':'analysis_station_sprite',
+  'DECK BUILDER':'deck_builder_station_sprite','DELIVERY':'delivery_station_sprite',
+  'PASSTHROUGH':'pass_through_window_sprite','TRASH':'trash_station_sprite',
+  'COPILOT':'copilot_station_sprite','FEEDBACK':'feedback_station_sprite',
+};
+const STATION_SPRITES={};
+for(const [k,f] of Object.entries(STATION_FILES)){
+  const img=new Image();img.src=`assets/sprites/${f}.png`;
+  STATION_SPRITES[k]={img,ok:false};
+  img.onload=()=>{STATION_SPRITES[k].ok=true};
+}
+// Carry icon sprites (keyed by ITEM type)
+const CARRY_FILES={'RAW':'carry_icon_report','ANA':'carry_icon_slide','DRAFT':'carry_icon_deck','DONE':'carry_icon_deck'};
+const CARRY_SPRITES={};
+for(const [k,f] of Object.entries(CARRY_FILES)){
+  const img=new Image();img.src=`assets/sprites/${f}.png`;
+  CARRY_SPRITES[k]={img,ok:false};
+  img.onload=()=>{CARRY_SPRITES[k].ok=true};
+}
+// Floor texture + barrier wall
+const FLOOR_IMG=new Image();let floorOk=false;let floorPattern=null;
+FLOOR_IMG.src='assets/sprites/office_floor_texture.png';
+FLOOR_IMG.onload=()=>{floorOk=true;try{floorPattern=ctx.createPattern(FLOOR_IMG,'repeat');}catch(e){}};
+const BARRIER_IMG=new Image();let barrierOk=false;
+BARRIER_IMG.src='assets/sprites/barrier_divider_wall_sprite.png';
+BARRIER_IMG.onload=()=>{barrierOk=true};
 // Strip white/light background from boss sprite to match transparent player sprites
 let sbClean=null;
 sb.onload=()=>{
@@ -193,7 +239,11 @@ sb.onload=()=>{
   ox.putImageData(id,0,0);sbClean=oc;sbok=true;
 };
 
-function g2s(gx,gy){return{x:CW/2+(gx-gy)*(TW/2),y:155+(gx+gy)*(TH/2)}}
+// Horizontally center the asymmetric grid. When GC != GR, the grid's geometric
+// center is offset from CW/2 by (GC-GR)*TW/4. Subtract that so the grid sits
+// centered in the canvas (equal margins left and right).
+const GRID_X_CENTER_ADJ=(GC-GR)*TW/4;
+function g2s(gx,gy){return{x:CW/2-GRID_X_CENTER_ADJ+(gx-gy)*(TW/2),y:GRID_Y_OFFSET+(gx+gy)*(TH/2)}}
 function gd(ax,ay,bx,by){return Math.sqrt((ax-bx)**2+(ay-by)**2)}
 
 const RECIPES = {
@@ -226,14 +276,14 @@ const ITEMS={
   DONE:{name:'Polished',color:'#50b060',sym:'✅',next:null,st:'FEEDBACK'},
 };
 const STA=[
-  {n:'INBOX',gx:0,gy:3,c:'#e07040',items:[],pt:0},
-  {n:'ANALYSIS',gx:2,gy:0,c:'#40a0e0',items:[],pt:2.0},
-  {n:'FEEDBACK',gx:1,gy:6,c:'#9b59b6',items:[],pt:3.0,maxQ:1},
-  {n:'PASSTHROUGH',gx:3,gy:3,c:'#aaaaaa',items:[],pt:0,maxQ:4},
-  {n:'TRASH',gx:3,gy:5,c:'#cc4444',items:[],pt:0,maxQ:99},
-  {n:'DECK BUILDER',gx:5,gy:1,c:'#e0c040',items:[],pt:1.5},
-  {n:'DELIVERY',gx:7,gy:4,c:'#50b060',items:[],pt:0},
-  {n:'COPILOT',gx:6,gy:6,c:'#1abc9c',items:[],pt:3.0,maxQ:1},
+  {n:'INBOX',gx:1,gy:4,c:'#e07040',items:[],pt:0},
+  {n:'ANALYSIS',gx:3,gy:1,c:'#40a0e0',items:[],pt:2.0},
+  {n:'FEEDBACK',gx:2,gy:8,c:'#9b59b6',items:[],pt:3.0,maxQ:1},
+  {n:'PASSTHROUGH',gx:5,gy:4,c:'#aaaaaa',items:[],pt:0,maxQ:4},
+  {n:'TRASH',gx:5,gy:7,c:'#cc4444',items:[],pt:0,maxQ:99},
+  {n:'DECK BUILDER',gx:8,gy:2,c:'#e0c040',items:[],pt:1.5},
+  {n:'DELIVERY',gx:10,gy:5,c:'#50b060',items:[],pt:0},
+  {n:'COPILOT',gx:9,gy:8,c:'#1abc9c',items:[],pt:3.0,maxQ:1},
 ];
 const SICO={'INBOX':'📥','ANALYSIS':'🔬','DECK BUILDER':'🖥️','DELIVERY':'📤','FEEDBACK':'👔','COPILOT':'🤖','PASSTHROUGH':'🔲','TRASH':'🗑️'};
 function fSta(n){return STA.find(s=>s.n===n)}
@@ -244,7 +294,7 @@ const staFloats=[]; // {gx,gy,text,color,life,ml}
 let fbFrozen=null; // player frozen at FEEDBACK during processing
 
 function mkP(gx,gy){return{gx,gy,vx:0,vy:0,dir:DIR.DL,fr:0,at:0,mv:false,carry:null}}
-const p1=mkP(2.5,3.5),p2=mkP(4.5,4.5);
+const p1=mkP(3,5),p2=mkP(8,5);
 const pls=[p1,p2];
 
 const keys={},jp={};
@@ -255,11 +305,23 @@ function spawnCel(gx,gy){const{x,y}=g2s(gx,gy);const em=['🎉','⭐','✨','�
 
 // Drawing functions
 const TC=['#3d5a80','#3a5578'];
-function dTile(c,r){const{x,y}=g2s(c,r);ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+TW/2,y+TH/2);ctx.lineTo(x,y+TH);ctx.lineTo(x-TW/2,y+TH/2);ctx.closePath();ctx.fillStyle=TC[(c+r)%2];ctx.fill();ctx.strokeStyle='#2a3f5f';ctx.lineWidth=1;ctx.stroke()}
+function dTile(c,r){
+  const{x,y}=g2s(c,r);
+  ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+TW/2,y+TH/2);ctx.lineTo(x,y+TH);ctx.lineTo(x-TW/2,y+TH/2);ctx.closePath();
+  if(floorOk){
+    // Subtle tint so grid is visible over the carpet floor, checker pattern retained
+    ctx.fillStyle=(c+r)%2?'rgba(255,255,255,0.05)':'rgba(0,0,0,0.08)';
+    ctx.fill();
+    ctx.strokeStyle='rgba(0,0,0,0.25)';ctx.lineWidth=1;ctx.stroke();
+  }else{
+    ctx.fillStyle=TC[(c+r)%2];ctx.fill();
+    ctx.strokeStyle='#2a3f5f';ctx.lineWidth=1;ctx.stroke();
+  }
+}
 
 function dBox(x,y,c){
   // Isometric crate: scaled to tile size
-  const hw=20,hh=10,ht=15;const by=y+TH/2-ht;
+  const hw=15,hh=8,ht=12;const by=y+TH/2-ht;
   // Parse hex color and make 3 shades
   const r=parseInt(c.slice(1,3),16),g=parseInt(c.slice(3,5),16),b=parseInt(c.slice(5,7),16);
   const top=`rgb(${Math.min(255,r+50)},${Math.min(255,g+50)},${Math.min(255,b+50)})`;
@@ -275,7 +337,14 @@ function dBox(x,y,c){
 
 // Barrier wall segment
 function dBarrierSeg(gy){
-  const{x,y}=g2s(BARRIER_COL,gy);const wh=TW*0.12,wv=TH*0.12,ht=22;
+  const{x,y}=g2s(BARRIER_COL,gy);
+  if(barrierOk){
+    // Draw generated barrier sprite, sized to one tile, anchored so base sits on the tile top
+    const bw=TW*0.55,bh=TW*0.9;
+    ctx.drawImage(BARRIER_IMG,x-bw/2,y+TH/2-bh,bw,bh);
+    return;
+  }
+  const wh=TW*0.12,wv=TH*0.12,ht=22;
   // Top
   ctx.beginPath();ctx.moveTo(x,y-ht);ctx.lineTo(x+wh,y+wv-ht);ctx.lineTo(x,y+wv*2-ht);ctx.lineTo(x-wh,y+wv-ht);ctx.closePath();ctx.fillStyle='#667788';ctx.fill();ctx.strokeStyle='#556677';ctx.lineWidth=0.5;ctx.stroke();
   // Left
@@ -284,19 +353,42 @@ function dBarrierSeg(gy){
   ctx.beginPath();ctx.moveTo(x+wh,y+wv-ht);ctx.lineTo(x,y+wv*2-ht);ctx.lineTo(x,y+wv*2);ctx.lineTo(x+wh,y+wv);ctx.closePath();ctx.fillStyle='#445566';ctx.fill();ctx.stroke();
 }
 
+// Per-station visual scale overrides for sprite sizing. Default is 1.2x tile width.
+const STA_SPRITE_SCALE={'PASSTHROUGH':0.85,'TRASH':0.85};
+// Draw a generated station sprite anchored to the bottom of its tile.
+// Returns true if a sprite was drawn; false if caller should fall back.
+function dStaSprite(s,x,y){
+  const entry=STATION_SPRITES[s.n];
+  if(!entry||!entry.ok)return false;
+  const img=entry.img;
+  const scale=STA_SPRITE_SCALE[s.n]||1.2;
+  const tw=TW*scale;
+  const th=tw*(img.naturalHeight/img.naturalWidth);
+  ctx.drawImage(img,x-tw/2,y+TH/2-th+4,tw,th);
+  return true;
+}
+
 function dSta(s){
   const{x,y}=g2s(s.gx,s.gy);const t=Date.now()/1000;const ip=s.items.some(i=>i.p);
+  // For PASSTHROUGH and TRASH we want the SPRITE visually on the barrier line
+  // (so it looks integrated into the wall), even though the gameplay cell is at
+  // s.gx/s.gy. Compute a render position at BARRIER_COL for the sprite only.
+  const wallBlend=(s.n==='PASSTHROUGH'||s.n==='TRASH');
+  const rx=wallBlend?g2s(BARRIER_COL,s.gy).x:x;
+  const ry=wallBlend?g2s(BARRIER_COL,s.gy).y:y;
   // PASSTHROUGH: flat counter/bench style
   if(s.n==='PASSTHROUGH'){
     ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+TW/2,y+TH/2);ctx.lineTo(x,y+TH);ctx.lineTo(x-TW/2,y+TH/2);ctx.closePath();
     ctx.fillStyle='#aaaaaa22';ctx.fill();ctx.save();ctx.setLineDash([5,4]);ctx.strokeStyle='#aaaaaabb';ctx.lineWidth=2;ctx.stroke();ctx.setLineDash([]);ctx.restore();
-    // Flat counter top (no tall crate)
-    const cT=y+TH/2-6,cW=TW*.5,cH=8;
-    ctx.fillStyle='#88888899';ctx.beginPath();ctx.moveTo(x,cT);ctx.lineTo(x+cW/2,cT+TH*.2);ctx.lineTo(x,cT+TH*.4);ctx.lineTo(x-cW/2,cT+TH*.2);ctx.closePath();ctx.fill();
-    ctx.fillStyle='#77777799';ctx.beginPath();ctx.moveTo(x,cT+TH*.4);ctx.lineTo(x+cW/2,cT+TH*.2);ctx.lineTo(x+cW/2,cT+TH*.2+cH);ctx.lineTo(x,cT+TH*.4+cH);ctx.closePath();ctx.fill();
-    ctx.fillStyle='#66666699';ctx.beginPath();ctx.moveTo(x,cT+TH*.4);ctx.lineTo(x-cW/2,cT+TH*.2);ctx.lineTo(x-cW/2,cT+TH*.2+cH);ctx.lineTo(x,cT+TH*.4+cH);ctx.closePath();ctx.fill();
-    // Icon + label
-    ctx.save();ctx.font='16px sans-serif';ctx.textAlign='center';ctx.fillText('🔲',x,cT-4+Math.sin(t*2+s.gx)*2);ctx.restore();
+    const cT=y+TH/2-6;
+    if(!dStaSprite(s,rx,ry)){
+      // Fallback: flat counter top (no tall crate)
+      const cW=TW*.5,cH=8;
+      ctx.fillStyle='#88888899';ctx.beginPath();ctx.moveTo(x,cT);ctx.lineTo(x+cW/2,cT+TH*.2);ctx.lineTo(x,cT+TH*.4);ctx.lineTo(x-cW/2,cT+TH*.2);ctx.closePath();ctx.fill();
+      ctx.fillStyle='#77777799';ctx.beginPath();ctx.moveTo(x,cT+TH*.4);ctx.lineTo(x+cW/2,cT+TH*.2);ctx.lineTo(x+cW/2,cT+TH*.2+cH);ctx.lineTo(x,cT+TH*.4+cH);ctx.closePath();ctx.fill();
+      ctx.fillStyle='#66666699';ctx.beginPath();ctx.moveTo(x,cT+TH*.4);ctx.lineTo(x-cW/2,cT+TH*.2);ctx.lineTo(x-cW/2,cT+TH*.2+cH);ctx.lineTo(x,cT+TH*.4+cH);ctx.closePath();ctx.fill();
+      ctx.save();ctx.font='16px sans-serif';ctx.textAlign='center';ctx.fillText('🔲',x,cT-4+Math.sin(t*2+s.gx)*2);ctx.restore();
+    }
     ctx.save();ctx.font='bold 8px "Outfit",sans-serif';ctx.textAlign='center';ctx.textBaseline='bottom';const pw=ctx.measureText('PASS-THROUGH').width+10;ctx.fillStyle='#aaaaaa99';ctx.beginPath();ctx.roundRect(x-pw/2,cT-30,pw,14,3);ctx.fill();ctx.fillStyle='#fff';ctx.fillText('PASS-THROUGH',x,cT-19);ctx.restore();
     // Items on counter
     s.items.forEach((it,i)=>{const inf=ITEMS[it.t],ix=x+(i-(s.items.length-1)/2)*18,ib=cT+TH*.4+24;ctx.save();ctx.font='14px sans-serif';ctx.textAlign='center';ctx.fillText(inf.sym,ix,ib);if(Math.sin(t*5+i)>0){ctx.font='bold 7px "Outfit",sans-serif';ctx.fillStyle='#ff0';ctx.fillText('READY',ix,ib-10);}ctx.restore();});
@@ -306,27 +398,35 @@ function dSta(s){
   if(s.n==='TRASH'){
     ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+TW/2,y+TH/2);ctx.lineTo(x,y+TH);ctx.lineTo(x-TW/2,y+TH/2);ctx.closePath();
     ctx.fillStyle='#cc444433';ctx.fill();ctx.strokeStyle='#cc4444';ctx.lineWidth=1.5;ctx.stroke();
-    dBox(x,y,'#cc4444');
     const dT=y+TH/2-18;
-    ctx.save();ctx.font='22px sans-serif';ctx.textAlign='center';ctx.fillText('🗑️',x,dT-2+Math.sin(t*2+s.gx)*2);ctx.restore();
+    if(!dStaSprite(s,rx,ry)){
+      dBox(x,y,'#cc4444');
+      ctx.save();ctx.font='22px sans-serif';ctx.textAlign='center';ctx.fillText('🗑️',x,dT-2+Math.sin(t*2+s.gx)*2);ctx.restore();
+    }
     ctx.save();ctx.font='bold 9px "Outfit",sans-serif';ctx.textAlign='center';ctx.textBaseline='bottom';const pw=ctx.measureText('TRASH').width+12;ctx.fillStyle='#cc4444dd';ctx.beginPath();ctx.roundRect(x-pw/2,dT-32,pw,16,3);ctx.fill();ctx.fillStyle='#fff';ctx.fillText('TRASH',x,dT-19);ctx.restore();
     if(s.flash&&s.flashT>0){ctx.save();ctx.globalAlpha=s.flashT*0.6;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+TW/2,y+TH/2);ctx.lineTo(x,y+TH);ctx.lineTo(x-TW/2,y+TH/2);ctx.closePath();ctx.fillStyle=s.flash;ctx.fill();ctx.restore();}
     return;
   }
   ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+TW/2,y+TH/2);ctx.lineTo(x,y+TH);ctx.lineTo(x-TW/2,y+TH/2);ctx.closePath();
   ctx.fillStyle=s.c+(ip?Math.round((.4+.25*Math.sin(t*6))*255).toString(16).padStart(2,'0'):'44');ctx.fill();ctx.strokeStyle=s.c;ctx.lineWidth=1.5;ctx.stroke();
-  dBox(x,y,s.c);
-  const dW_=TW*.6,dT=y+TH/2-18;
-  ctx.fillStyle=s.c+'aa';ctx.beginPath();ctx.moveTo(x,dT);ctx.lineTo(x+dW_/2,dT+TH*.3);ctx.lineTo(x,dT+TH*.6);ctx.lineTo(x-dW_/2,dT+TH*.3);ctx.closePath();ctx.fill();
-  ctx.fillStyle=s.c+'77';ctx.beginPath();ctx.moveTo(x,dT+TH*.6);ctx.lineTo(x+dW_/2,dT+TH*.3);ctx.lineTo(x+dW_/2,dT+TH*.3+18);ctx.lineTo(x,dT+TH*.6+18);ctx.closePath();ctx.fill();
-  ctx.fillStyle=s.c+'55';ctx.beginPath();ctx.moveTo(x,dT+TH*.6);ctx.lineTo(x-dW_/2,dT+TH*.3);ctx.lineTo(x-dW_/2,dT+TH*.3+18);ctx.lineTo(x,dT+TH*.6+18);ctx.closePath();ctx.fill();
-  ctx.save();ctx.font='20px sans-serif';ctx.textAlign='center';ctx.fillText(SICO[s.n]||'📦',x,dT-2+Math.sin(t*2+s.gx)*2);ctx.restore();
+  const dT=y+TH/2-18;
+  if(!dStaSprite(s,x,y)){
+    dBox(x,y,s.c);
+    const dW_=TW*.6;
+    ctx.fillStyle=s.c+'aa';ctx.beginPath();ctx.moveTo(x,dT);ctx.lineTo(x+dW_/2,dT+TH*.3);ctx.lineTo(x,dT+TH*.6);ctx.lineTo(x-dW_/2,dT+TH*.3);ctx.closePath();ctx.fill();
+    ctx.fillStyle=s.c+'77';ctx.beginPath();ctx.moveTo(x,dT+TH*.6);ctx.lineTo(x+dW_/2,dT+TH*.3);ctx.lineTo(x+dW_/2,dT+TH*.3+18);ctx.lineTo(x,dT+TH*.6+18);ctx.closePath();ctx.fill();
+    ctx.fillStyle=s.c+'55';ctx.beginPath();ctx.moveTo(x,dT+TH*.6);ctx.lineTo(x-dW_/2,dT+TH*.3);ctx.lineTo(x-dW_/2,dT+TH*.3+18);ctx.lineTo(x,dT+TH*.6+18);ctx.closePath();ctx.fill();
+    ctx.save();ctx.font='20px sans-serif';ctx.textAlign='center';ctx.fillText(SICO[s.n]||'📦',x,dT-2+Math.sin(t*2+s.gx)*2);ctx.restore();
+  }
   ctx.save();ctx.font='bold 9px "Outfit",sans-serif';ctx.textAlign='center';ctx.textBaseline='bottom';const pw=ctx.measureText(s.n).width+12;ctx.fillStyle=s.c+'dd';ctx.beginPath();ctx.roundRect(x-pw/2,dT-32,pw,16,3);ctx.fill();ctx.fillStyle='#fff';ctx.fillText(s.n,x,dT-19);ctx.restore();
   // Copilot flash overlay
   if(s.flash&&s.flashT>0){ctx.save();ctx.globalAlpha=s.flashT*0.6;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+TW/2,y+TH/2);ctx.lineTo(x,y+TH);ctx.lineTo(x-TW/2,y+TH/2);ctx.closePath();ctx.fillStyle=s.flash;ctx.fill();ctx.restore();}
-  // Boss character at FEEDBACK
+  // Boss character at FEEDBACK — stands behind the desk, not on top of it
   if(s.n==='FEEDBACK'){
-    const bx=x,by_=dT-6;
+    // Anchor the boss's feet to the "back edge" of the desk sprite visually:
+    // higher on screen (smaller y) and slightly offset up-right so she reads
+    // as standing behind the desk rather than beside it.
+    const bx=x+TW*0.08,by_=y+TH/2-TH*1.1;
     // Draw boss sprite (static, facing down-left)
     if(sbok&&sbClean){const BFW=sb.naturalWidth/8,BFH=sb.naturalHeight/4;const bSS=DH/BFH;const bDW=BFW*bSS,bDH=BFH*bSS;ctx.drawImage(sbClean,0,0,BFW,BFH,bx-bDW/2,by_-bDH+4,bDW,bDH);}
     else{ctx.fillStyle='#2c3e50';ctx.fillRect(bx-8,by_-20,16,24);ctx.beginPath();ctx.arc(bx,by_-28,10,0,Math.PI*2);ctx.fillStyle='#f4c89a';ctx.fill();}
@@ -341,7 +441,24 @@ function dPl(p,sp,ok){
   const{x,y}=g2s(p.gx,p.gy);ctx.save();ctx.globalAlpha=.25;ctx.fillStyle='#000';ctx.beginPath();ctx.ellipse(x,y+TH/2+4,22,9,0,0,Math.PI*2);ctx.fill();ctx.restore();
   if(ok)ctx.drawImage(sp,p.fr*FW,p.dir*FH,FW,FH,x-DW/2,y+TH/2-DH+10,DW,DH);
   else{ctx.beginPath();ctx.arc(x,y+TH/2,16,0,Math.PI*2);ctx.fillStyle='#f0c040';ctx.fill();}
-  if(p.carry){const inf=ITEMS[p.carry.t],bob=Math.sin(Date.now()/300)*3;ctx.save();ctx.beginPath();ctx.arc(x,y-DH/2-8+bob,14,0,Math.PI*2);ctx.fillStyle=inf.color+'cc';ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();ctx.font='14px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(inf.sym,x,y-DH/2-7+bob);ctx.restore();}
+  if(p.carry){
+    const inf=ITEMS[p.carry.t],bob=Math.sin(Date.now()/300)*2;
+    const entry=CARRY_SPRITES[p.carry.t];
+    if(entry&&entry.ok){
+      // Draw carry icon held "in front" of character at hip/hand height,
+      // offset by facing direction so it looks like it's held out in front.
+      // DIR: DL=0, UL=1, UR=2, DR=3
+      const dx={0:-12,1:-12,2:12,3:12}[p.dir]||0;
+      const dy={0:2,1:-2,2:-2,3:2}[p.dir]||0;
+      const iw=Math.round(DW*0.8),ih=iw*(entry.img.naturalHeight/entry.img.naturalWidth);
+      // Hip level = 22% of character height above feet (character's feet are
+      // at y+TH/2+10). Low enough that it never overlaps the face.
+      ctx.drawImage(entry.img,x-iw/2+dx,y+TH/2+10-DH*0.22-ih/2+dy+bob,iw,ih);
+    }else{
+      // Fallback: circle + emoji bubble above head
+      ctx.save();ctx.beginPath();ctx.arc(x,y-DH/2-8+bob,14,0,Math.PI*2);ctx.fillStyle=inf.color+'cc';ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();ctx.font='14px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(inf.sym,x,y-DH/2-7+bob);ctx.restore();
+    }
+  }
 }
 
 function interact(p){
@@ -534,6 +651,8 @@ function update(){
 
 function render(){
   ctx.clearRect(0,0,CW,CH);ctx.fillStyle='#1a1a2e';ctx.fillRect(0,0,CW,CH);
+  // Floor texture tiled across the whole canvas (pattern cached at image load)
+  if(floorPattern){ctx.fillStyle=floorPattern;ctx.fillRect(0,0,CW,CH);}
   for(let r=0;r<GR;r++)for(let c=0;c<GC;c++)dTile(c,r);
   // Order cards (top-left overlay)
   const OW=280,OH=110,OX=16,OY=16,OG=10;
@@ -563,7 +682,7 @@ function render(){
   for(const f of orderFlashes){const cy=OY+f.idx*(OH+OG);ctx.save();ctx.globalAlpha=f.life/f.ml*.6;ctx.fillStyle='#f44';ctx.beginPath();ctx.roundRect(OX,cy,OW,OH,8);ctx.fill();ctx.restore();}
   const dr=[];for(const s of STA)dr.push({d:s.gx+s.gy,f:()=>dSta(s)});
   // Barrier wall segments (skip PASSTHROUGH row)
-  for(let gy=0;gy<GR;gy++){if(gy===3||gy===5)continue;dr.push({d:BARRIER_COL+gy,f:()=>dBarrierSeg(gy)});}
+  for(let gy=0;gy<GR;gy++){if(gy===4||gy===7)continue;dr.push({d:BARRIER_COL+gy,f:()=>dBarrierSeg(gy)});}
   dr.push({d:p1.gx+p1.gy,f:()=>dPl(p1,s1,s1ok)});dr.push({d:p2.gx+p2.gy,f:()=>dPl(p2,s2,s2ok)});
   dr.sort((a,b)=>a.d-b.d);for(const d of dr)d.f();
   for(const p of[p1,p2])for(const s of STA){const d=gd(p.gx,p.gy,s.gx+.5,s.gy+.5);if(d<IR){const{x,y}=g2s(s.gx,s.gy);ctx.save();ctx.font='8px "Press Start 2P",monospace';ctx.textAlign='center';ctx.fillStyle=p===p1?'#88bbff':'#ffbb88';ctx.globalAlpha=.6+.3*Math.sin(Date.now()/250);ctx.fillText(p===p1?'[SPACE]':'[ACT]',x+(p===p1?-15:15),y-32);ctx.restore();}}
