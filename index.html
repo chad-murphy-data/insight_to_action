@@ -201,13 +201,16 @@ const ctx = canvas.getContext('2d');
 // canvas rather than being locked to a 2:1 isometric ratio (which wastes space
 // on wider-than-2:1 screens).
 const GC=12,GR=10;
-// Canvas sizes itself to the viewport. Leave ~150px vertical budget for the
-// HUD/controls rows below the canvas, and shrink gracefully on small screens.
-const CW=Math.min(Math.max(window.innerWidth-20,640),1920);
-const CH=Math.min(Math.max(window.innerHeight-150,400),1080);
+// Canvas sizes itself to the viewport but is CAPPED so it never grows past a
+// comfortable max — that way browser chrome (tabs, bookmarks bar) never pushes
+// the HUD off-screen, and the playfield doesn't get awkwardly stretched on
+// ultra-wide monitors. The viewport budget reserves ~220px vertically for the
+// HUD/controls/credits rows below the canvas plus typical chrome.
+const CW=Math.min(Math.max(window.innerWidth-40,640),1280);
+const CH=Math.min(Math.max(window.innerHeight-220,400),720);
 // Top margin must leave room for the wall tops above row 0 AND character
-// heads above the topmost row. Walls rise ~2.8*TH; we budget 150px here.
-const TOP_MARGIN=150,SIDE_MARGIN=10,BOTTOM_MARGIN=10;
+// heads above the topmost row. Walls rise ~2.8*TH; we budget 130px here.
+const TOP_MARGIN=130,SIDE_MARGIN=10,BOTTOM_MARGIN=10;
 const _availW=CW-SIDE_MARGIN*2,_availH=CH-TOP_MARGIN-BOTTOM_MARGIN;
 const _halfSum=(GC+GR)/2;
 const TW=Math.floor(_availW/_halfSum);
@@ -338,18 +341,23 @@ const ITEMS = {
   LIT:  { name: 'Lit Review',     color: '#f0c040', sym: '📚', stackable: true  },
   DONE: { name: 'Polished Deck',  color: '#50b060', sym: '✅', stackable: false },
 };
-// Open-map layout (no barrier): left cluster prep, right cluster assembly,
-// center column for shared discard/copilot. Both players can reach anything.
+// Open-map layout: stations spread evenly across the playfield in a 3x3-ish
+// grid. The five tutorial stations (TEMPLATES, INBOX, DECK BUILDER, DELIVERY,
+// TRASH) form an evenly-spaced quincunx — corners + center — so the tutorial
+// player walks the whole room. The other four stations (ANALYSIS, SYNTHESIS,
+// FEEDBACK, COPILOT) fill in the edges between for level 1+.
 const STA=[
-  {n:'TEMPLATES',gx:1,gy:2,c:'#aaaaaa',items:[],pt:0,maxQ:6},
-  {n:'INBOX',gx:1,gy:5,c:'#88bbff',items:[],pt:0,maxQ:3},
-  {n:'ANALYSIS',gx:3,gy:1,c:'#40a0e0',items:[],pt:2.5,lockout:0},
-  {n:'SYNTHESIS',gx:3,gy:8,c:'#f0c040',items:[],pt:1.2},
-  {n:'DECK BUILDER',gx:8,gy:2,c:'#e0c040',items:[],pt:1.0},
-  {n:'DELIVERY',gx:10,gy:5,c:'#50b060',items:[],pt:0},
-  {n:'FEEDBACK',gx:8,gy:8,c:'#9b59b6',items:[],pt:3.0,maxQ:1},
-  {n:'COPILOT',gx:6,gy:1,c:'#1abc9c',items:[],pt:3.0,maxQ:1},
-  {n:'TRASH',gx:6,gy:8,c:'#cc4444',items:[],pt:0,maxQ:99},
+  // Tutorial-visible stations (quincunx)
+  {n:'TEMPLATES',gx:2,gy:2,c:'#aaaaaa',items:[],pt:0,maxQ:6},
+  {n:'INBOX',gx:9,gy:2,c:'#88bbff',items:[],pt:0,maxQ:3},
+  {n:'TRASH',gx:5,gy:4,c:'#cc4444',items:[],pt:0,maxQ:99},
+  {n:'DELIVERY',gx:2,gy:7,c:'#50b060',items:[],pt:0},
+  {n:'DECK BUILDER',gx:9,gy:7,c:'#e0c040',items:[],pt:1.0},
+  // Level 1+ stations (fill the edges)
+  {n:'ANALYSIS',gx:5,gy:2,c:'#40a0e0',items:[],pt:2.5,lockout:0},
+  {n:'COPILOT',gx:2,gy:4,c:'#1abc9c',items:[],pt:3.0,maxQ:1},
+  {n:'FEEDBACK',gx:8,gy:4,c:'#9b59b6',items:[],pt:3.0,maxQ:1},
+  {n:'SYNTHESIS',gx:5,gy:7,c:'#f0c040',items:[],pt:1.2},
 ];
 const SICO={'TEMPLATES':'📋','INBOX':'❓','ANALYSIS':'🔬','DECK BUILDER':'🖥️','DELIVERY':'📤','FEEDBACK':'👔','COPILOT':'🤖','TRASH':'🗑️','SYNTHESIS':'📚'};
 function fSta(n){return STA.find(s=>s.n===n)}
@@ -512,22 +520,36 @@ function drawWindow(x0,y0,x1,y1,wallH){
 }
 
 function drawWalls(){
-  // Walls are tall enough that station/character sprites never stick up above
-  // them — otherwise sprites draw over the wall and the wall looks "missing"
-  // behind tall objects like the INBOX desk. DH (character height) drives the
-  // floor; walls are at least DH*1.3 tall, and never shorter than 2.5*TH.
+  // All four walls are the same height. Walls are tall enough that
+  // station/character sprites never stick up above them, so the wall is
+  // never visually "missing" behind tall objects. DH (character height)
+  // drives the floor; walls are at least DH*1.3 tall, never shorter than
+  // 2.5*TH. All walls render BEFORE the depth-sorted draw list so anything
+  // in the playfield naturally appears in front of them.
   const WALL_H=Math.max(TH*2.5,DH*1.3);
-  // Back-left wall: along col 0 tiles, using each tile's top-left edge
+  // Back-left wall: along col 0 tiles, top-left edge
   // (left corner -> top corner, i.e. (x-TW/2,y+TH/2) -> (x,y))
   for(let r=0;r<GR;r++){
     const{x,y}=g2s(0,r);
     drawWallFace(x-TW/2,y+TH/2,x,y,WALL_H,WALL_LEFT,r,GR);
   }
-  // Back-right wall: along row 0 tiles, using each tile's top-right edge
+  // Back-right wall: along row 0 tiles, top-right edge
   // (top corner -> right corner, i.e. (x,y) -> (x+TW/2,y+TH/2))
   for(let c=0;c<GC;c++){
     const{x,y}=g2s(c,0);
     drawWallFace(x,y,x+TW/2,y+TH/2,WALL_H,WALL_RIGHT,c,GC);
+  }
+  // Front-right wall: along col GC-1 tiles, right-bottom edge
+  // (right corner -> bottom corner, i.e. (x+TW/2,y+TH/2) -> (x,y+TH))
+  for(let r=0;r<GR;r++){
+    const{x,y}=g2s(GC-1,r);
+    drawWallFace(x+TW/2,y+TH/2,x,y+TH,WALL_H,WALL_RIGHT,r,GR);
+  }
+  // Front-left wall: along row GR-1 tiles, bottom-left edge
+  // (bottom corner -> left corner, i.e. (x,y+TH) -> (x-TW/2,y+TH/2))
+  for(let c=0;c<GC;c++){
+    const{x,y}=g2s(c,GR-1);
+    drawWallFace(x,y+TH,x-TW/2,y+TH/2,WALL_H,WALL_LEFT,c,GC);
   }
 }
 
@@ -576,8 +598,10 @@ function drawStaLabel(s,x,dT){
   ctx.restore();
 }
 
-// Draw a generated station sprite anchored to the bottom of its tile.
-// Returns true if a sprite was drawn; false if caller should fall back.
+// Draw a generated station sprite anchored to the bottom-front of its tile,
+// with a soft floor shadow underneath so the desk reads as sitting on the
+// floor instead of floating mid-air. Returns true if a sprite was drawn;
+// false if caller should fall back.
 function dStaSprite(s,x,y){
   const entry=STATION_SPRITES[s.n];
   if(!entry||!entry.ok)return false;
@@ -585,7 +609,17 @@ function dStaSprite(s,x,y){
   const scale=STA_SPRITE_SCALE[s.n]||1.2;
   const tw=TW*scale;
   const th=tw*(img.naturalHeight/img.naturalWidth);
-  ctx.drawImage(img,x-tw/2,y+TH/2-th+4,tw,th);
+  // Floor shadow: soft elliptical disc on the iso tile floor, slightly larger
+  // than the sprite footprint so it visually anchors the desk to the ground.
+  ctx.save();
+  ctx.fillStyle='rgba(0,0,0,0.28)';
+  ctx.beginPath();
+  ctx.ellipse(x,y+TH-TH*0.18,tw*0.42,TH*0.32,0,0,Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+  // Sprite anchored so its bottom edge meets the front (bottom) of the tile.
+  // The +2px offset hides the seam between sprite and shadow.
+  ctx.drawImage(img,x-tw/2,y+TH-th+2,tw,th);
   return true;
 }
 
