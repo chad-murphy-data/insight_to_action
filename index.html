@@ -196,26 +196,35 @@ function sendInput(input) {
 // ==================== GAME ENGINE ====================
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
-// Fit the canvas to the window. Grid extents: width=(GC+GR)/2*TW, height=(GC+GR)/2*TH.
-// Compute TW and TH INDEPENDENTLY so the grid fills both dimensions of the
-// canvas rather than being locked to a 2:1 isometric ratio (which wastes space
-// on wider-than-2:1 screens).
+// Grid extents: width=(GC+GR)/2*TW, height=(GC+GR)/2*TH.
+// Tiles use a fixed iso aspect ratio (TILE_RATIO ≈ TW/TH). 1.75 is more
+// top-down than the classic 2:1 iso — closer to the angle the desk sprites
+// were drawn at, so the desks visually sit flush on their tiles instead of
+// looking tipped forward / floating.
 const GC=12,GR=10;
-// Canvas sizes itself to the viewport but is CAPPED so it never grows past a
-// comfortable max — that way browser chrome (tabs, bookmarks bar) never pushes
-// the HUD off-screen, and the playfield doesn't get awkwardly stretched on
-// ultra-wide monitors. The viewport budget reserves ~220px vertically for the
-// HUD/controls/credits rows below the canvas plus typical chrome.
-const CW=Math.min(Math.max(window.innerWidth-40,640),1280);
-const CH=Math.min(Math.max(window.innerHeight-220,400),720);
+const TILE_RATIO=1.75;
 // Top margin must leave room for the wall tops above row 0 AND character
 // heads above the topmost row. Walls rise ~2.8*TH; we budget 130px here.
 const TOP_MARGIN=130,SIDE_MARGIN=10,BOTTOM_MARGIN=10;
-const _availW=CW-SIDE_MARGIN*2,_availH=CH-TOP_MARGIN-BOTTOM_MARGIN;
+// Maximum viewport budget — leaves ~120px vertical for HUD + browser chrome.
+// The cap (880) keeps the canvas from getting wastefully tall on big monitors.
+const _maxW=Math.min(Math.max(window.innerWidth-40,640),1500);
+const _maxH=Math.min(Math.max(window.innerHeight-120,380),880);
 const _halfSum=(GC+GR)/2;
-const TW=Math.floor(_availW/_halfSum);
-const TH=Math.floor(_availH/_halfSum);
-const GRID_Y_OFFSET=TOP_MARGIN+Math.floor((_availH-_halfSum*TH)/2);
+// Try to fit the grid by width first; if the resulting height blows our
+// budget, fall back to fitting by height. Either way, TW/TH stays at
+// TILE_RATIO so the desks always match the tile angle.
+let _twTry=Math.floor((_maxW-SIDE_MARGIN*2)/_halfSum);
+let _thTry=Math.floor(_twTry/TILE_RATIO);
+if(_thTry*_halfSum+TOP_MARGIN+BOTTOM_MARGIN>_maxH){
+  _thTry=Math.floor((_maxH-TOP_MARGIN-BOTTOM_MARGIN)/_halfSum);
+  _twTry=Math.floor(_thTry*TILE_RATIO);
+}
+const TW=_twTry,TH=_thTry;
+// Canvas exactly fits the grid + margins — no empty floor outside the room.
+const CW=TW*_halfSum+SIDE_MARGIN*2;
+const CH=TH*_halfSum+TOP_MARGIN+BOTTOM_MARGIN;
+const GRID_Y_OFFSET=TOP_MARGIN;
 const ACCEL=9,FRIC=5.5,MSPD=2.7,BNC=0.3,AFPS=10;
 canvas.width=CW;canvas.height=CH;
 // Character sprite scale scales with tile size (reference TH=60 -> SS=1.15)
@@ -569,8 +578,11 @@ function dBox(x,y,c){
   ctx.beginPath();ctx.moveTo(x+hw,by);ctx.lineTo(x,by+hh);ctx.lineTo(x,by+hh+ht);ctx.lineTo(x+hw,by+ht);ctx.closePath();ctx.fillStyle=right;ctx.fill();ctx.stroke();
 }
 
-// Per-station visual scale overrides for sprite sizing. Default is 1.2x tile width.
-const STA_SPRITE_SCALE={'TRASH':0.85};
+// Per-station visual scale overrides for sprite sizing. Default is 1.0x tile
+// width — at TILE_RATIO=1.7 the iso angle matches the desk art, so desks at
+// full tile width sit cleanly inside their tile without poking into walls.
+const STA_SPRITE_SCALE={'TRASH':0.75};
+const STA_DEFAULT_SCALE=1.0;
 // Two-tone pill label above a station: darker shadow + station-color top fill
 // + handwritten white text. Used for both TRASH and regular stations.
 function drawStaLabel(s,x,dT){
@@ -606,20 +618,28 @@ function dStaSprite(s,x,y){
   const entry=STATION_SPRITES[s.n];
   if(!entry||!entry.ok)return false;
   const img=entry.img;
-  const scale=STA_SPRITE_SCALE[s.n]||1.2;
+  const scale=STA_SPRITE_SCALE[s.n]||STA_DEFAULT_SCALE;
   const tw=TW*scale;
   const th=tw*(img.naturalHeight/img.naturalWidth);
-  // Floor shadow: soft elliptical disc on the iso tile floor, slightly larger
-  // than the sprite footprint so it visually anchors the desk to the ground.
+  // Floor shadow: large, soft, two-pass elliptical disc centered on the
+  // tile's bottom corner so the desk reads as sitting on the floor. First
+  // pass is wider+lighter (ambient shadow), second is tighter+darker (contact
+  // shadow at the desk's base).
   ctx.save();
-  ctx.fillStyle='rgba(0,0,0,0.28)';
+  ctx.fillStyle='rgba(0,0,0,0.18)';
   ctx.beginPath();
-  ctx.ellipse(x,y+TH-TH*0.18,tw*0.42,TH*0.32,0,0,Math.PI*2);
+  ctx.ellipse(x,y+TH-TH*0.12,tw*0.55,TH*0.42,0,0,Math.PI*2);
+  ctx.fill();
+  ctx.fillStyle='rgba(0,0,0,0.32)';
+  ctx.beginPath();
+  ctx.ellipse(x,y+TH-TH*0.10,tw*0.42,TH*0.28,0,0,Math.PI*2);
   ctx.fill();
   ctx.restore();
-  // Sprite anchored so its bottom edge meets the front (bottom) of the tile.
-  // The +2px offset hides the seam between sprite and shadow.
-  ctx.drawImage(img,x-tw/2,y+TH-th+2,tw,th);
+  // Sprite anchored so its bottom edge sits a few px BELOW the tile's bottom
+  // corner — that nudges the visible (non-padding) part of the desk down onto
+  // the floor and hides the seam between sprite and shadow.
+  const dropY=Math.round(TH*0.18);
+  ctx.drawImage(img,x-tw/2,y+TH-th+dropY,tw,th);
   return true;
 }
 
