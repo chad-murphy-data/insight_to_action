@@ -212,7 +212,7 @@ const _halfSum=(GC+GR)/2;
 const TW=Math.floor(_availW/_halfSum);
 const TH=Math.floor(_availH/_halfSum);
 const GRID_Y_OFFSET=TOP_MARGIN+Math.floor((_availH-_halfSum*TH)/2);
-const ACCEL=12,FRIC=4.5,MSPD=3.8,BNC=0.3,AFPS=10;
+const ACCEL=9,FRIC=5.5,MSPD=2.7,BNC=0.3,AFPS=10;
 canvas.width=CW;canvas.height=CH;
 // Character sprite scale scales with tile size (reference TH=60 -> SS=1.15)
 const FC=8,FR=4,FW=60,FH=112,SS=1.15*(TH/60),DW=FW*SS,DH=FH*SS;
@@ -244,10 +244,20 @@ for(const [k,f] of Object.entries(CARRY_FILES)){
   CARRY_SPRITES[k]={img,ok:false};
   img.onload=()=>{CARRY_SPRITES[k].ok=true};
 }
-// Floor texture
+// Floor texture — scaled so a single tile covers the whole canvas, eliminating
+// the visible seam where the source bitmap (~924px) starts repeating.
 const FLOOR_IMG=new Image();let floorOk=false;let floorPattern=null;
 FLOOR_IMG.src='assets/sprites/office_floor_texture.png';
-FLOOR_IMG.onload=()=>{floorOk=true;try{floorPattern=ctx.createPattern(FLOOR_IMG,'repeat');}catch(e){}};
+FLOOR_IMG.onload=()=>{
+  floorOk=true;
+  try{
+    floorPattern=ctx.createPattern(FLOOR_IMG,'repeat');
+    if(floorPattern&&floorPattern.setTransform){
+      const sc=Math.max(CW/FLOOR_IMG.naturalWidth,CH/FLOOR_IMG.naturalHeight)*1.05;
+      floorPattern.setTransform(new DOMMatrix().scale(sc,sc));
+    }
+  }catch(e){}
+};
 // Strip white/light background from boss sprite to match transparent player sprites
 let sbClean=null;
 sb.onload=()=>{
