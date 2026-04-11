@@ -197,19 +197,19 @@ function sendInput(input) {
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 // Grid extents: width=(GC+GR)/2*TW, height=(GC+GR)/2*TH.
-// Tiles use a fixed iso aspect ratio (TILE_RATIO ≈ TW/TH). 1.75 is more
-// top-down than the classic 2:1 iso — closer to the angle the desk sprites
-// were drawn at, so the desks visually sit flush on their tiles instead of
-// looking tipped forward / floating.
+// Tiles use a fixed iso aspect ratio (TILE_RATIO ≈ TW/TH). 1.9 sits between
+// the classic 2:1 iso (2.0) and a true top-down angle — flat enough that the
+// canvas uses most of a 16:9 viewport horizontally, but still steeper than
+// 2:1 so the desk sprites read as sitting on their tiles instead of tipped.
 const GC=12,GR=10;
-const TILE_RATIO=1.75;
+const TILE_RATIO=1.9;
 // Top margin must leave room for the wall tops above row 0 AND character
 // heads above the topmost row. Walls rise ~2.8*TH; we budget 130px here.
 const TOP_MARGIN=130,SIDE_MARGIN=10,BOTTOM_MARGIN=10;
-// Maximum viewport budget — leaves ~120px vertical for HUD + browser chrome.
-// The cap (880) keeps the canvas from getting wastefully tall on big monitors.
-const _maxW=Math.min(Math.max(window.innerWidth-40,640),1500);
-const _maxH=Math.min(Math.max(window.innerHeight-120,380),880);
+// Maximum viewport budget — leaves ~100px vertical for HUD + browser chrome.
+// The cap (920) keeps the canvas from getting wastefully tall on big monitors.
+const _maxW=Math.min(Math.max(window.innerWidth-40,640),1700);
+const _maxH=Math.min(Math.max(window.innerHeight-100,380),920);
 const _halfSum=(GC+GR)/2;
 // Try to fit the grid by width first; if the resulting height blows our
 // budget, fall back to fitting by height. Either way, TW/TH stays at
@@ -225,7 +225,15 @@ const TW=_twTry,TH=_thTry;
 const CW=TW*_halfSum+SIDE_MARGIN*2;
 const CH=TH*_halfSum+TOP_MARGIN+BOTTOM_MARGIN;
 const GRID_Y_OFFSET=TOP_MARGIN;
-const ACCEL=9,FRIC=5.5,MSPD=2.7,BNC=0.3,AFPS=10;
+// Movement constants scale with tile width so the perceived speed
+// (tiles/sec) stays roughly constant as the canvas grows — without this,
+// growing the canvas slows traversal because the character moves at a
+// fixed pixel rate through a bigger world. Reference TW=100 gets the
+// unscaled base values (ACCEL=13, FRIC=8, MSPD=4.0). At TW=125 these
+// give ~2.4 tiles/sec which feels snappy in an Overcooked-style game.
+// BNC and AFPS are unitless and don't scale.
+const _spdScale=TW/100;
+const ACCEL=13*_spdScale,FRIC=8*_spdScale,MSPD=4.0*_spdScale,BNC=0.3,AFPS=10;
 canvas.width=CW;canvas.height=CH;
 // Character sprite scale scales with tile size (reference TH=60 -> SS=1.15)
 const FC=8,FR=4,FW=60,FH=112,SS=1.15*(TH/60),DW=FW*SS,DH=FH*SS;
@@ -637,8 +645,9 @@ function dStaSprite(s,x,y){
   ctx.restore();
   // Sprite anchored so its bottom edge sits a few px BELOW the tile's bottom
   // corner — that nudges the visible (non-padding) part of the desk down onto
-  // the floor and hides the seam between sprite and shadow.
-  const dropY=Math.round(TH*0.18);
+  // the floor and hides the seam between sprite and shadow. Larger drop at
+  // flatter (higher) tile ratios since the tile's vertical extent is smaller.
+  const dropY=Math.round(TH*0.22);
   ctx.drawImage(img,x-tw/2,y+TH-th+dropY,tw,th);
   return true;
 }
