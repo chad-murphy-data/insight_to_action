@@ -46,6 +46,8 @@
   <h1>INSIGHT KITCHEN</h1>
   <p>A BeSci Overcooked game for virtual onsites</p>
   <div style="margin:30px 0">
+    <button class="btn" id="btn-tutorial" onclick="playTutorial()">Tutorial 🎓</button>
+    <br>
     <button class="btn" id="btn-bot" onclick="playWithBot()">Play with Bot 🤖</button>
     <p style="font-size:11px;color:#555">— or play online —</p>
     <button class="btn" id="btn-create" onclick="createRoom()">Create Room</button>
@@ -56,7 +58,7 @@
   </div>
   <div id="room-code" style="display:none"></div>
   <div id="status"></div>
-  <p style="font-size:10px;color:#444;margin-top:40px">P1: WASD+SPACE | P2: IJKL+ENTER | Both sides of the kitchen</p>
+  <p style="font-size:10px;color:#444;margin-top:40px">P1: WASD+SPACE | P2: IJKL+ENTER</p>
 </div>
 
 <!-- GAME -->
@@ -71,6 +73,7 @@
       <div id="go-rank"></div>
       <div id="go-buttons">
         <button class="btn" id="go-play-again">Play Again</button>
+        <button class="btn" id="go-try-level1" style="display:none">Try Level 1 →</button>
         <button class="btn" id="go-lobby">Back to Lobby</button>
       </div>
     </div>
@@ -107,7 +110,6 @@ let botInterval = null;
 let botState = 'IDLE';
 let botActCooldown = 0;
 const BOT_SPEED = 0.6; // fraction of player max speed
-let botPTCooldown = 0; // cooldown after bot drops at PASSTHROUGH to prevent pickup loop
 
 function setStatus(msg) { document.getElementById('status').textContent = msg; }
 
@@ -211,7 +213,6 @@ const TW=Math.floor(_availW/_halfSum);
 const TH=Math.floor(_availH/_halfSum);
 const GRID_Y_OFFSET=TOP_MARGIN+Math.floor((_availH-_halfSum*TH)/2);
 const ACCEL=12,FRIC=4.5,MSPD=3.8,BNC=0.3,AFPS=10;
-const BARRIER_COL=5.7; // gx threshold: p1 stays <=, p2 stays >=
 canvas.width=CW;canvas.height=CH;
 // Character sprite scale scales with tile size (reference TH=60 -> SS=1.15)
 const FC=8,FR=4,FW=60,FH=112,SS=1.15*(TH/60),DW=FW*SS,DH=FH*SS;
@@ -226,7 +227,7 @@ let s1ok=false,s2ok=false,sbok=false;s1.onload=()=>{s1ok=true};s2.onload=()=>{s2
 const STATION_FILES={
   'INBOX':'inbox_station_sprite','ANALYSIS':'analysis_station_sprite',
   'DECK BUILDER':'deck_builder_station_sprite','DELIVERY':'delivery_station_sprite',
-  'PASSTHROUGH':'pass_through_window_sprite','TRASH':'trash_station_sprite',
+  'TRASH':'trash_station_sprite',
   'COPILOT':'copilot_station_sprite','FEEDBACK':'feedback_station_sprite',
 };
 const STATION_SPRITES={};
@@ -243,13 +244,10 @@ for(const [k,f] of Object.entries(CARRY_FILES)){
   CARRY_SPRITES[k]={img,ok:false};
   img.onload=()=>{CARRY_SPRITES[k].ok=true};
 }
-// Floor texture + barrier wall
+// Floor texture
 const FLOOR_IMG=new Image();let floorOk=false;let floorPattern=null;
 FLOOR_IMG.src='assets/sprites/office_floor_texture.png';
 FLOOR_IMG.onload=()=>{floorOk=true;try{floorPattern=ctx.createPattern(FLOOR_IMG,'repeat');}catch(e){}};
-const BARRIER_IMG=new Image();let barrierOk=false;
-BARRIER_IMG.src='assets/sprites/barrier_divider_wall_sprite.png';
-BARRIER_IMG.onload=()=>{barrierOk=true};
 // Strip white/light background from boss sprite to match transparent player sprites
 let sbClean=null;
 sb.onload=()=>{
@@ -291,23 +289,48 @@ const RECIPES = {
     requires: ['RQ', 'DATA', 'LIT'], level: 2, needsFeedback: true,
   },
 };
-// Per-level config: which recipes spawn, which stations are active, star targets
+// Per-level config: orders, active stations, star targets, round/order timing
 const LEVELS = {
-  1: {
-    orders: ['QUICK_STAT', 'FULL_READOUT'],
+  0: {
+    name: 'Tutorial',
+    orders: ['QUICK_STAT'],
+    activeStations: ['TEMPLATES','INBOX','DECK BUILDER','DELIVERY','TRASH'],
     synthesisActive: false,
+    roundDuration: 90,
+    starThresholds: { 1: 2, 2: 3, 3: 5 },
+    maxOrders: 2,
+    orderTimeLimit: 45,
+    isTutorial: true,
+  },
+  1: {
+    name: 'Level 1',
+    orders: ['QUICK_STAT', 'FULL_READOUT'],
+    activeStations: ['TEMPLATES','INBOX','ANALYSIS','DECK BUILDER','DELIVERY','TRASH','FEEDBACK','COPILOT'],
+    synthesisActive: false,
+    roundDuration: 150,
     starThresholds: { 1: 3, 2: 5, 3: 7 },
+    maxOrders: 3,
+    orderTimeLimit: 60,
   },
   2: {
+    name: 'Level 2',
     orders: ['QUICK_STAT', 'FULL_READOUT', 'PSYCH_INSTRUMENT', 'FRAMEWORK_DECK'],
+    activeStations: ['TEMPLATES','INBOX','ANALYSIS','SYNTHESIS','DECK BUILDER','DELIVERY','TRASH','FEEDBACK','COPILOT'],
     synthesisActive: true,
+    roundDuration: 150,
     starThresholds: { 1: 4, 2: 6, 3: 9 },
+    maxOrders: 3,
+    orderTimeLimit: 60,
   },
 };
 let orders = [];
-const MAX_ORDERS = 3, ORDER_INTERVAL = 12;
+const ORDER_INTERVAL = 12;
 let orderTimer = 0;
 const orderFlashes = []; // {x,y,life,ml}
+// Tutorial hint state — fires once each per session
+let hintTemplateFired = false, hintTemplateTimer = 0;
+let hintBuilderFired = false, hintBuilderTimer = 0;
+let hintTemplateGlow = 0, hintBuilderGlow = 0; // 0..3 seconds visual
 
 // New item set: TMPL is the carrier; RQ/DATA/LIT are stacked into TMPL.contents; DONE is final
 const ITEMS = {
@@ -317,32 +340,38 @@ const ITEMS = {
   LIT:  { name: 'Lit Review',     color: '#f0c040', sym: '📚', stackable: true  },
   DONE: { name: 'Polished Deck',  color: '#50b060', sym: '✅', stackable: false },
 };
+// Open-map layout (no barrier): left cluster prep, right cluster assembly,
+// center column for shared discard/copilot. Both players can reach anything.
 const STA=[
-  {n:'TEMPLATES',gx:1,gy:7,c:'#aaaaaa',items:[],pt:0,maxQ:6},
-  {n:'INBOX',gx:1,gy:4,c:'#88bbff',items:[],pt:0,maxQ:3},
+  {n:'TEMPLATES',gx:1,gy:2,c:'#aaaaaa',items:[],pt:0,maxQ:6},
+  {n:'INBOX',gx:1,gy:5,c:'#88bbff',items:[],pt:0,maxQ:3},
   {n:'ANALYSIS',gx:3,gy:1,c:'#40a0e0',items:[],pt:2.5,lockout:0},
-  {n:'FEEDBACK',gx:2,gy:8,c:'#9b59b6',items:[],pt:3.0,maxQ:1},
-  {n:'PASSTHROUGH',gx:5,gy:4,c:'#aaaaaa',items:[],pt:0,maxQ:4},
-  {n:'TRASH',gx:5,gy:7,c:'#cc4444',items:[],pt:0,maxQ:99},
-  {n:'SYNTHESIS',gx:8,gy:7,c:'#f0c040',items:[],pt:1.2},
+  {n:'SYNTHESIS',gx:3,gy:8,c:'#f0c040',items:[],pt:1.2},
   {n:'DECK BUILDER',gx:8,gy:2,c:'#e0c040',items:[],pt:1.0},
   {n:'DELIVERY',gx:10,gy:5,c:'#50b060',items:[],pt:0},
-  {n:'COPILOT',gx:9,gy:8,c:'#1abc9c',items:[],pt:3.0,maxQ:1},
+  {n:'FEEDBACK',gx:8,gy:8,c:'#9b59b6',items:[],pt:3.0,maxQ:1},
+  {n:'COPILOT',gx:6,gy:1,c:'#1abc9c',items:[],pt:3.0,maxQ:1},
+  {n:'TRASH',gx:6,gy:8,c:'#cc4444',items:[],pt:0,maxQ:99},
 ];
-const SICO={'TEMPLATES':'📋','INBOX':'❓','ANALYSIS':'🔬','DECK BUILDER':'🖥️','DELIVERY':'📤','FEEDBACK':'👔','COPILOT':'🤖','PASSTHROUGH':'🔲','TRASH':'🗑️','SYNTHESIS':'📚'};
+const SICO={'TEMPLATES':'📋','INBOX':'❓','ANALYSIS':'🔬','DECK BUILDER':'🖥️','DELIVERY':'📤','FEEDBACK':'👔','COPILOT':'🤖','TRASH':'🗑️','SYNTHESIS':'📚'};
 function fSta(n){return STA.find(s=>s.n===n)}
+// Is this station active in the current level?
+function staActive(s){
+  const cfg=LEVELS[currentLevel];
+  if(!cfg||!cfg.activeStations)return true;
+  return cfg.activeStations.includes(s.n);
+}
 
 // Game state and tuning constants
 let score=0,deliveries=0,spT=0,tmplT=0;
 const RQ_SPAWN_INTERVAL=5, RQ_MAX_QUEUE=3;
 const TMPL_SPAWN_INTERVAL=6, TMPL_MAX_QUEUE=6;
 const ANALYSIS_BURN_TIME=8, ANALYSIS_OVERLOAD_LOCKOUT=3;
-const ROUND_LENGTH=150; // 2:30
-const IR=1.4;
+const IR=1.8;
 let gamePhase='countdown'; // 'countdown' | 'playing' | 'gameover'
-let roundTimer=ROUND_LENGTH;
-let countdownTimer=3.0;
 let currentLevel=1;
+let roundTimer=LEVELS[currentLevel].roundDuration;
+let countdownTimer=3.0;
 const particles=[];
 const staFloats=[]; // {gx,gy,text,color,life,ml}
 let fbFrozen=null; // player frozen at FEEDBACK during processing
@@ -389,26 +418,8 @@ function dBox(x,y,c){
   ctx.beginPath();ctx.moveTo(x+hw,by);ctx.lineTo(x,by+hh);ctx.lineTo(x,by+hh+ht);ctx.lineTo(x+hw,by+ht);ctx.closePath();ctx.fillStyle=right;ctx.fill();ctx.stroke();
 }
 
-// Barrier wall segment
-function dBarrierSeg(gy){
-  const{x,y}=g2s(BARRIER_COL,gy);
-  if(barrierOk){
-    // Draw generated barrier sprite, sized to one tile, anchored so base sits on the tile top
-    const bw=TW*0.55,bh=TW*0.9;
-    ctx.drawImage(BARRIER_IMG,x-bw/2,y+TH/2-bh,bw,bh);
-    return;
-  }
-  const wh=TW*0.12,wv=TH*0.12,ht=22;
-  // Top
-  ctx.beginPath();ctx.moveTo(x,y-ht);ctx.lineTo(x+wh,y+wv-ht);ctx.lineTo(x,y+wv*2-ht);ctx.lineTo(x-wh,y+wv-ht);ctx.closePath();ctx.fillStyle='#667788';ctx.fill();ctx.strokeStyle='#556677';ctx.lineWidth=0.5;ctx.stroke();
-  // Left
-  ctx.beginPath();ctx.moveTo(x-wh,y+wv-ht);ctx.lineTo(x,y+wv*2-ht);ctx.lineTo(x,y+wv*2);ctx.lineTo(x-wh,y+wv);ctx.closePath();ctx.fillStyle='#556677';ctx.fill();ctx.stroke();
-  // Right
-  ctx.beginPath();ctx.moveTo(x+wh,y+wv-ht);ctx.lineTo(x,y+wv*2-ht);ctx.lineTo(x,y+wv*2);ctx.lineTo(x+wh,y+wv);ctx.closePath();ctx.fillStyle='#445566';ctx.fill();ctx.stroke();
-}
-
 // Per-station visual scale overrides for sprite sizing. Default is 1.2x tile width.
-const STA_SPRITE_SCALE={'PASSTHROUGH':0.85,'TRASH':0.85};
+const STA_SPRITE_SCALE={'TRASH':0.85};
 // Draw a generated station sprite anchored to the bottom of its tile.
 // Returns true if a sprite was drawn; false if caller should fall back.
 function dStaSprite(s,x,y){
@@ -424,36 +435,12 @@ function dStaSprite(s,x,y){
 
 function dSta(s){
   const{x,y}=g2s(s.gx,s.gy);const t=Date.now()/1000;const ip=s.items.some(i=>i.p);
-  // For PASSTHROUGH and TRASH we want the SPRITE visually on the barrier line
-  // (so it looks integrated into the wall), even though the gameplay cell is at
-  // s.gx/s.gy. Compute a render position at BARRIER_COL for the sprite only.
-  const wallBlend=(s.n==='PASSTHROUGH'||s.n==='TRASH');
-  const rx=wallBlend?g2s(BARRIER_COL,s.gy).x:x;
-  const ry=wallBlend?g2s(BARRIER_COL,s.gy).y:y;
-  // PASSTHROUGH: flat counter/bench style
-  if(s.n==='PASSTHROUGH'){
-    ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+TW/2,y+TH/2);ctx.lineTo(x,y+TH);ctx.lineTo(x-TW/2,y+TH/2);ctx.closePath();
-    ctx.fillStyle='#aaaaaa22';ctx.fill();ctx.save();ctx.setLineDash([5,4]);ctx.strokeStyle='#aaaaaabb';ctx.lineWidth=2;ctx.stroke();ctx.setLineDash([]);ctx.restore();
-    const cT=y+TH/2-6;
-    if(!dStaSprite(s,rx,ry)){
-      // Fallback: flat counter top (no tall crate)
-      const cW=TW*.5,cH=8;
-      ctx.fillStyle='#88888899';ctx.beginPath();ctx.moveTo(x,cT);ctx.lineTo(x+cW/2,cT+TH*.2);ctx.lineTo(x,cT+TH*.4);ctx.lineTo(x-cW/2,cT+TH*.2);ctx.closePath();ctx.fill();
-      ctx.fillStyle='#77777799';ctx.beginPath();ctx.moveTo(x,cT+TH*.4);ctx.lineTo(x+cW/2,cT+TH*.2);ctx.lineTo(x+cW/2,cT+TH*.2+cH);ctx.lineTo(x,cT+TH*.4+cH);ctx.closePath();ctx.fill();
-      ctx.fillStyle='#66666699';ctx.beginPath();ctx.moveTo(x,cT+TH*.4);ctx.lineTo(x-cW/2,cT+TH*.2);ctx.lineTo(x-cW/2,cT+TH*.2+cH);ctx.lineTo(x,cT+TH*.4+cH);ctx.closePath();ctx.fill();
-      ctx.save();ctx.font='16px sans-serif';ctx.textAlign='center';ctx.fillText('🔲',x,cT-4+Math.sin(t*2+s.gx)*2);ctx.restore();
-    }
-    ctx.save();ctx.font='bold 8px "Outfit",sans-serif';ctx.textAlign='center';ctx.textBaseline='bottom';const pw=ctx.measureText('PASS-THROUGH').width+10;ctx.fillStyle='#aaaaaa99';ctx.beginPath();ctx.roundRect(x-pw/2,cT-30,pw,14,3);ctx.fill();ctx.fillStyle='#fff';ctx.fillText('PASS-THROUGH',x,cT-19);ctx.restore();
-    // Items on counter
-    s.items.forEach((it,i)=>{const inf=ITEMS[it.t],ix=x+(i-(s.items.length-1)/2)*18,ib=cT+TH*.4+24;ctx.save();ctx.font='14px sans-serif';ctx.textAlign='center';ctx.fillText(inf.sym,ix,ib);if(Math.sin(t*5+i)>0){ctx.font='bold 7px "Outfit",sans-serif';ctx.fillStyle='#ff0';ctx.fillText('READY',ix,ib-10);}ctx.restore();});
-    return;
-  }
   // TRASH: red-tinted bin
   if(s.n==='TRASH'){
     ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+TW/2,y+TH/2);ctx.lineTo(x,y+TH);ctx.lineTo(x-TW/2,y+TH/2);ctx.closePath();
     ctx.fillStyle='#cc444433';ctx.fill();ctx.strokeStyle='#cc4444';ctx.lineWidth=1.5;ctx.stroke();
     const dT=y+TH/2-18;
-    if(!dStaSprite(s,rx,ry)){
+    if(!dStaSprite(s,x,y)){
       dBox(x,y,'#cc4444');
       ctx.save();ctx.font='22px sans-serif';ctx.textAlign='center';ctx.fillText('🗑️',x,dT-2+Math.sin(t*2+s.gx)*2);ctx.restore();
     }
@@ -598,47 +585,80 @@ function assignRecipeForRQ(){
   return best;
 }
 
+// Weighted recipe spawning — quick stats are more frequent than full readouts
+function weightedRecipePick(pool){
+  const weights={QUICK_STAT:3,FULL_READOUT:2,PSYCH_INSTRUMENT:1,FRAMEWORK_DECK:1};
+  const eligible=pool.filter(r=>RECIPES[r]);
+  if(eligible.length===0)return null;
+  const total=eligible.reduce((s,r)=>s+(weights[r]||1),0);
+  let rand=Math.random()*total;
+  for(const r of eligible){
+    rand-=(weights[r]||1);
+    if(rand<=0)return r;
+  }
+  return eligible[eligible.length-1];
+}
+
+// Tie-breaking station priority — lower returned value = higher priority.
+// When two stations are within ~0.3 grid units, contextual logic picks the
+// one that matches the player's current carry / state.
+function staPriority(s,p){
+  if(!p.carry){
+    if(s.n==='TEMPLATES'&&s.items.length>0)return -0.3;
+    if(s.items.some(i=>!i.p))return -0.2;
+  }else if(p.carry.t==='TMPL'){
+    const c=p.carry.contents||[];
+    if(s.n==='INBOX'&&!c.includes('RQ'))return -0.3;
+    if(s.n==='ANALYSIS'&&c.includes('RQ')&&!c.includes('DATA'))return -0.3;
+    if(s.n==='SYNTHESIS'&&c.includes('RQ')&&!c.includes('LIT'))return -0.3;
+    if(s.n==='DECK BUILDER'&&tmplComplete(p.carry))return -0.3;
+  }else if(p.carry.t==='DONE'){
+    if(s.n==='DELIVERY')return -0.3;
+  }
+  return 0;
+}
+
+// Pre-fill stations so the first GO isn't dead — players have something to do immediately
+function initStations(){
+  const tm=fSta('TEMPLATES');
+  const ib=fSta('INBOX');
+  if(tm)for(let i=0;i<3;i++)tm.items.push({t:'TMPL'});
+  if(ib)for(let i=0;i<2;i++)ib.items.push({t:'RQ',p:false});
+}
+
 function interact(p){
-  let nr=null,nd=Infinity;
+  // Pick nearest station within IR, with contextual priority adjustment as a tie-breaker.
+  let nr=null,nbest=Infinity;
   for(const s of STA){
+    if(!staActive(s))continue;
     if(s.n==='SYNTHESIS'&&!LEVELS[currentLevel].synthesisActive)continue;
     const d=gd(p.gx,p.gy,s.gx+.5,s.gy+.5);
-    if(d<IR&&d<nd){nr=s;nd=d;}
+    if(d>=IR)continue;
+    const score=d+staPriority(s,p);
+    if(score<nbest){nbest=score;nr=s;}
   }
   if(!nr)return;
 
   // ============ PICKUP (no carry) ============
   if(!p.carry){
-    // INBOX requires a template first
-    if(nr.n==='INBOX'){
-      staFloats.push({gx:nr.gx,gy:nr.gy,text:'Need template! 📋',color:'#f44',life:1.2,ml:1.2});
-      return;
-    }
     // TEMPLATES: grab a fresh empty template
     if(nr.n==='TEMPLATES'){
       if(nr.items.length>0){
         nr.items.pop();
         p.carry={t:'TMPL',contents:[],recipe:null,bonus:0};
+      }else{
+        staFloats.push({gx:nr.gx,gy:nr.gy,text:'(empty)',color:'#888',life:.8,ml:.8});
       }
+      return;
+    }
+    // INBOX without a template — guide them to TEMPLATES first
+    if(nr.n==='INBOX'){
+      staFloats.push({gx:nr.gx,gy:nr.gy,text:'Grab a template first! 📋',color:'#fa0',life:1.4,ml:1.4});
       return;
     }
     // Pickup from any station that holds items the player can carry
     if(nr.items.length>0){
-      // Prefer ready (non-processing) items; for PASSTHROUGH prefer completable ones
-      let idx=-1;
-      if(nr.n==='PASSTHROUGH'){
-        idx=nr.items.findIndex(i=>{
-          if(i.t==='DONE')return true;
-          if(i.t==='TMPL'&&i.recipe){
-            const rc=RECIPES[i.recipe];
-            return rc&&rc.requires.every(ing=>(i.contents||[]).includes(ing));
-          }
-          return false;
-        });
-        if(idx<0)idx=0;
-      }else{
-        idx=nr.items.findIndex(i=>!i.p);
-      }
+      const idx=nr.items.findIndex(i=>!i.p);
       if(idx>=0){
         const it=nr.items.splice(idx,1)[0];
         p.carry=carryFromItem(it);
@@ -657,15 +677,6 @@ function interact(p){
     staFloats.push({gx:nr.gx,gy:nr.gy,text:'🗑️ -1',color:'#f44',life:1.2,ml:1.2});
     nr.flash='#f44';nr.flashT=.4;
     p.carry=null;return;
-  }
-
-  // PASSTHROUGH: drop on counter (with all contents)
-  if(nr.n==='PASSTHROUGH'){
-    if(nr.items.length<(nr.maxQ||99)){
-      nr.items.push({t:carry.t,contents:carry.contents?[...carry.contents]:[],recipe:carry.recipe,bonus:carry.bonus||0,p:false});
-      p.carry=null;
-    }
-    return;
   }
 
   // DELIVERY: only DONE accepted
@@ -832,11 +843,6 @@ function applyState(d){
   d.sta.forEach((sd,i)=>{STA[i].items=sd.items;if(sd.lockout!==undefined)STA[i].lockout=sd.lockout;});
 }
 
-function clampBarrier(){
-  if(p1.gx>BARRIER_COL){p1.gx=BARRIER_COL;p1.vx=-p1.vx*BNC;}
-  if(p2.gx<BARRIER_COL){p2.gx=BARRIER_COL;p2.vx=-p2.vx*BNC;}
-}
-
 function carryDisplayText(c){
   if(!c)return '—';
   if(c.t==='DONE')return '✅ Deck';
@@ -895,26 +901,31 @@ function update(){
     return;
   }
 
+  const cfg=LEVELS[currentLevel];
+
   // RQ spawning at INBOX
   spT+=.016;
   const ib=fSta('INBOX');
-  if(spT>=RQ_SPAWN_INTERVAL&&ib.items.length<RQ_MAX_QUEUE){
+  if(ib&&staActive(ib)&&spT>=RQ_SPAWN_INTERVAL&&ib.items.length<RQ_MAX_QUEUE){
     ib.items.push({t:'RQ',p:false});spT=0;
   }
   // TMPL spawning at TEMPLATES
   tmplT+=.016;
   const tm=fSta('TEMPLATES');
-  if(tmplT>=TMPL_SPAWN_INTERVAL&&tm.items.length<TMPL_MAX_QUEUE){
+  if(tm&&staActive(tm)&&tmplT>=TMPL_SPAWN_INTERVAL&&tm.items.length<TMPL_MAX_QUEUE){
     tm.items.push({t:'TMPL'});tmplT=0;
   }
 
-  // Order spawning (only from this level's pool)
+  // Order spawning (only from this level's pool, with weighted probability)
   orderTimer+=.016;
-  const orderPool=LEVELS[currentLevel].orders;
-  if((orders.length===0||orderTimer>=ORDER_INTERVAL)&&orders.length<MAX_ORDERS){
-    const recipe=orderPool[Math.floor(Math.random()*orderPool.length)];
-    orders.push({id:Date.now()+Math.random(),recipe,timeLimit:60,elapsed:0});
-    orderTimer=0;
+  const maxO=cfg.maxOrders||3;
+  const limO=cfg.orderTimeLimit||60;
+  if((orders.length===0||orderTimer>=ORDER_INTERVAL)&&orders.length<maxO){
+    const recipe=weightedRecipePick(cfg.orders);
+    if(recipe){
+      orders.push({id:Date.now()+Math.random(),recipe,timeLimit:limO,elapsed:0});
+      orderTimer=0;
+    }
   }
   // Order timers and expiry
   for(let i=orders.length-1;i>=0;i--){
@@ -926,8 +937,25 @@ function update(){
   }
   for(let i=orderFlashes.length-1;i>=0;i--){orderFlashes[i].life-=.016;if(orderFlashes[i].life<=0)orderFlashes.splice(i,1);}
 
+  // Tutorial hint system (Level 0 only)
+  if(cfg.isTutorial){
+    hintTemplateTimer+=.016;
+    if(!hintTemplateFired&&hintTemplateTimer>5&&!p1.carry&&!p2.carry){
+      hintTemplateFired=true;hintTemplateGlow=3;
+    }
+    // hint 2: any player carrying a TMPL with at least RQ
+    const anyLoaded=[p1,p2].some(p=>p.carry&&p.carry.t==='TMPL'&&(p.carry.contents||[]).includes('RQ'));
+    if(anyLoaded)hintBuilderTimer+=.016; else hintBuilderTimer=0;
+    if(!hintBuilderFired&&hintBuilderTimer>8){
+      hintBuilderFired=true;hintBuilderGlow=3;
+    }
+    if(hintTemplateGlow>0)hintTemplateGlow-=.016;
+    if(hintBuilderGlow>0)hintBuilderGlow-=.016;
+  }
+
   // Station processing + burn + lockout
   for(const s of STA){
+    if(!staActive(s))continue;
     if(s.n==='ANALYSIS'&&s.lockout>0){s.lockout-=.016;if(s.lockout<0)s.lockout=0;}
     for(const it of s.items){
       if(it.p){
@@ -973,14 +1001,12 @@ function update(){
     if(fbFrozen!==p1)updPl(p1,keys['w'],keys['s'],keys['a'],keys['d'],!!jp[' ']);
     if(fbFrozen!==p2)updPl(p2,guestInput.up,guestInput.down,guestInput.left,guestInput.right,guestInput.act);
     guestInput.act=false;
-    clampBarrier();
     frameCount++;
     sendState(getState());
   } else if(role==='guest'){
     updPl(p2,keys['w']||keys['arrowup']||keys['i'],keys['s']||keys['arrowdown']||keys['k'],
       keys['a']||keys['arrowleft']||keys['j'],keys['d']||keys['arrowright']||keys['l'],
       !!jp[' ']||!!jp['enter']);
-    clampBarrier();
     sendInput({up:keys['w']||keys['arrowup']||keys['i'],down:keys['s']||keys['arrowdown']||keys['k'],
       left:keys['a']||keys['arrowleft']||keys['j'],right:keys['d']||keys['arrowright']||keys['l'],
       act:!!jp[' ']||!!jp['enter']});
@@ -995,7 +1021,6 @@ function update(){
         updPl(p2,keys['i'],keys['k'],keys['j'],keys['l'],!!jp['enter']);
       }
     }
-    clampBarrier();
   }
 
   for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.vy+=p.g*.016;p.x+=p.vx*.016;p.y+=p.vy*.016;p.life-=.016;if(p.life<=0)particles.splice(i,1)}
@@ -1034,17 +1059,55 @@ function render(){
   for(const f of orderFlashes){const cy=OY+f.idx*(OH+OG);ctx.save();ctx.globalAlpha=f.life/f.ml*.6;ctx.fillStyle='#f44';ctx.beginPath();ctx.roundRect(OX,cy,OW,OH,8);ctx.fill();ctx.restore();}
   const dr=[];
   for(const s of STA){
+    if(!staActive(s))continue;
     if(s.n==='SYNTHESIS'&&!LEVELS[currentLevel].synthesisActive)continue;
     dr.push({d:s.gx+s.gy,f:()=>dSta(s)});
   }
-  // Barrier wall segments (skip PASSTHROUGH row)
-  for(let gy=0;gy<GR;gy++){if(gy===4||gy===7)continue;dr.push({d:BARRIER_COL+gy,f:()=>dBarrierSeg(gy)});}
   dr.push({d:p1.gx+p1.gy,f:()=>dPl(p1,s1,s1ok)});dr.push({d:p2.gx+p2.gy,f:()=>dPl(p2,s2,s2ok)});
   dr.sort((a,b)=>a.d-b.d);for(const d of dr)d.f();
+  // In-range station highlight: pulsing outline + action hint above
   for(const p of[p1,p2])for(const s of STA){
+    if(!staActive(s))continue;
     if(s.n==='SYNTHESIS'&&!LEVELS[currentLevel].synthesisActive)continue;
     const d=gd(p.gx,p.gy,s.gx+.5,s.gy+.5);
-    if(d<IR){const{x,y}=g2s(s.gx,s.gy);ctx.save();ctx.font='8px "Press Start 2P",monospace';ctx.textAlign='center';ctx.fillStyle=p===p1?'#88bbff':'#ffbb88';ctx.globalAlpha=.6+.3*Math.sin(Date.now()/250);ctx.fillText(p===p1?'[SPACE]':'[ACT]',x+(p===p1?-15:15),y-32);ctx.restore();}
+    if(d<IR){
+      const{x,y}=g2s(s.gx,s.gy);
+      const col=p===p1?'#88bbff':'#ffbb88';
+      const pulse=.55+.45*Math.sin(Date.now()/180);
+      ctx.save();
+      ctx.globalAlpha=pulse;
+      ctx.strokeStyle=col;ctx.lineWidth=3;
+      ctx.shadowColor=col;ctx.shadowBlur=10;
+      ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+TW/2,y+TH/2);ctx.lineTo(x,y+TH);ctx.lineTo(x-TW/2,y+TH/2);ctx.closePath();
+      ctx.stroke();
+      ctx.shadowBlur=0;
+      ctx.font='8px "Press Start 2P",monospace';ctx.textAlign='center';ctx.fillStyle=col;
+      ctx.globalAlpha=.6+.3*Math.sin(Date.now()/250);
+      ctx.fillText(p===p1?'[SPACE]':'[ACT]',x+(p===p1?-15:15),y-32);
+      ctx.restore();
+    }
+  }
+  // Tutorial hint glows — TEMPLATES at start, DECK BUILDER once loaded
+  if(LEVELS[currentLevel]&&LEVELS[currentLevel].isTutorial){
+    function drawHintGlow(name,life,label){
+      if(life<=0)return;
+      const s=fSta(name);if(!s)return;
+      const{x,y}=g2s(s.gx,s.gy);
+      const a=Math.min(1,life/3);
+      const pulse=.5+.5*Math.sin(Date.now()/160);
+      ctx.save();
+      ctx.globalAlpha=a*pulse;
+      ctx.strokeStyle='#fff44f';ctx.lineWidth=4;
+      ctx.shadowColor='#fff44f';ctx.shadowBlur=20;
+      ctx.beginPath();ctx.moveTo(x,y-4);ctx.lineTo(x+TW/2+4,y+TH/2);ctx.lineTo(x,y+TH+4);ctx.lineTo(x-TW/2-4,y+TH/2);ctx.closePath();
+      ctx.stroke();
+      ctx.shadowBlur=0;ctx.globalAlpha=a;
+      ctx.font='bold 12px "Press Start 2P",monospace';ctx.textAlign='center';ctx.fillStyle='#fff44f';
+      ctx.fillText(label,x,y-44);
+      ctx.restore();
+    }
+    drawHintGlow('TEMPLATES',hintTemplateGlow,'Start here! 📋');
+    drawHintGlow('DECK BUILDER',hintBuilderGlow,'Finalize here! 🖥️');
   }
   for(const p of particles){ctx.save();ctx.globalAlpha=Math.max(0,p.life/p.ml);ctx.font=p.sz+'px sans-serif';ctx.textAlign='center';ctx.fillText(p.em,p.x,p.y);ctx.restore();}
   // Feedback speech bubble above frozen player
@@ -1059,10 +1122,22 @@ function render(){
     ctx.save();
     ctx.fillStyle='rgba(0,0,0,0.6)';ctx.fillRect(0,0,CW,CH);
     ctx.textAlign='center';ctx.textBaseline='middle';
+    const isTut=LEVELS[currentLevel]&&LEVELS[currentLevel].isTutorial;
+    // Title above the number
+    ctx.font='bold 22px "Press Start 2P",monospace';
+    ctx.fillStyle='#f0c040';
+    ctx.shadowColor='#000';ctx.shadowBlur=10;
+    ctx.fillText('INSIGHT KITCHEN',CW/2,CH/2-130);
+    if(isTut){
+      ctx.font='14px "Press Start 2P",monospace';
+      ctx.fillStyle='#fff';
+      ctx.fillText('Grab a template. Load it up. Deliver the deck.',CW/2,CH/2-95);
+    }
+    ctx.shadowBlur=0;
     let txt,sub='';
     if(countdownTimer>0){
       txt=Math.ceil(countdownTimer).toString();
-      sub='Get ready, P1 + P2!';
+      sub=isTut?'Tutorial mode':'Get ready, P1 + P2!';
     }else{
       txt='GO!';
       sub='Make those decks!';
@@ -1081,21 +1156,24 @@ function render(){
   }
 }
 
-function resetGame(){
+function resetGame(level){
+  if(level!==undefined)currentLevel=level;
+  const cfg=LEVELS[currentLevel];
   score=0;deliveries=0;
-  roundTimer=ROUND_LENGTH;
+  roundTimer=cfg.roundDuration;
   countdownTimer=3.0;
   gamePhase='countdown';
   orders=[];orderTimer=0;orderFlashes.length=0;
   for(const s of STA){s.items=[];s.lockout=0;s.flash=null;s.flashT=0;}
-  // Preload starting items so first GO isn't dead
-  const tm=fSta('TEMPLATES');if(tm){tm.items.push({t:'TMPL'});tm.items.push({t:'TMPL'});}
-  const ib=fSta('INBOX');if(ib){ib.items.push({t:'RQ',p:false});}
-  // Reset players
+  initStations();
+  // Reset players to opposite sides of the open map
   p1.gx=3;p1.gy=5;p1.vx=0;p1.vy=0;p1.carry=null;p1.fr=0;p1.dir=DIR.DL;
   p2.gx=8;p2.gy=5;p2.vx=0;p2.vy=0;p2.carry=null;p2.fr=0;p2.dir=DIR.DL;
   spT=0;tmplT=0;fbFrozen=null;
   particles.length=0;staFloats.length=0;
+  // Reset tutorial hint state
+  hintTemplateFired=false;hintTemplateTimer=0;hintTemplateGlow=0;
+  hintBuilderFired=false;hintBuilderTimer=0;hintBuilderGlow=0;
   hideGameOverOverlay();
   updateHUD();
 }
@@ -1103,20 +1181,30 @@ function resetGame(){
 function showGameOverOverlay(){
   const overlay=document.getElementById('game-over-overlay');
   if(!overlay)return;
+  const cfg=LEVELS[currentLevel];
+  const isTut=cfg&&cfg.isTutorial;
+  // Header
+  const hdr=document.getElementById('go-header');
+  if(hdr)hdr.textContent=isTut?'YOU GOT IT!':"TIME'S UP!";
   document.getElementById('go-score').textContent='Score: '+score;
   document.getElementById('go-deliveries').textContent='Deliveries: '+deliveries;
-  const thresholds=LEVELS[currentLevel].starThresholds;
+  const thresholds=cfg.starThresholds;
   let stars=0;
   if(deliveries>=thresholds[3])stars=3;
   else if(deliveries>=thresholds[2])stars=2;
   else if(deliveries>=thresholds[1])stars=1;
   document.getElementById('go-stars').textContent=stars>0?'⭐'.repeat(stars):'💀';
   let rank;
-  if(stars===3)rank='Insight Master!';
+  if(isTut){
+    rank=stars>0?'Level 1 adds DATA analysis — same idea, one more step.':'Try again — grab a 📋 and load it!';
+  }else if(stars===3)rank='Insight Master!';
   else if(stars===2)rank='Solid kitchen.';
   else if(stars===1)rank='Made it through.';
   else rank='Try again — your decks need work!';
   document.getElementById('go-rank').textContent=rank;
+  // Show "Try Level 1" button only after a tutorial round
+  const tryBtn=document.getElementById('go-try-level1');
+  if(tryBtn)tryBtn.style.display=isTut?'':'none';
   overlay.classList.add('show');
 }
 
@@ -1125,11 +1213,11 @@ function hideGameOverOverlay(){
   if(overlay)overlay.classList.remove('show');
 }
 
-function startGame(){
+function startGame(level){
   document.getElementById('lobby').style.display='none';
   document.getElementById('game-wrap').style.display='flex';
   // Guests don't reset state — they receive it from host
-  if(role!=='guest')resetGame();
+  if(role!=='guest')resetGame(level);
   if(!gameLoopRunning){gameLoopRunning=true;gameLoop();}
 }
 
@@ -1141,7 +1229,12 @@ document.addEventListener('DOMContentLoaded',()=>{
   const playAgain=document.getElementById('go-play-again');
   if(playAgain)playAgain.onclick=()=>{
     if(role==='guest')return; // only host/local can restart
-    resetGame();
+    resetGame(currentLevel);
+  };
+  const tryL1=document.getElementById('go-try-level1');
+  if(tryL1)tryL1.onclick=()=>{
+    if(role==='guest')return;
+    resetGame(1);
   };
   const lobbyBtn=document.getElementById('go-lobby');
   if(lobbyBtn)lobbyBtn.onclick=()=>{
@@ -1158,10 +1251,16 @@ document.getElementById('game-container').addEventListener('dblclick', () => {
 });
 
 // ==================== BOT AI ====================
+function playTutorial() {
+  role = null;
+  botActive = false;
+  startGame(0);
+}
+
 function playWithBot() {
   role = null;
   botActive = true;
-  startGame();
+  startGame(1);
   startBot();
 }
 
@@ -1187,51 +1286,70 @@ function botThink() {
   // Don't act during countdown / game over
   if (gamePhase !== 'playing') return;
   if (botActCooldown > 0) botActCooldown -= 50;
-  if (botPTCooldown > 0) botPTCooldown -= 50;
 
   const prevState = botState;
-  // Bot-accessible stations (employee side + passthrough/trash)
-  const BOT_STATIONS = ['DECK BUILDER', 'DELIVERY', 'COPILOT', 'PASSTHROUGH', 'TRASH', 'SYNTHESIS'];
+  const cfg = LEVELS[currentLevel] || {};
+  // Bot can use any station active in this level except FEEDBACK / COPILOT
+  // (kept simple/predictable for L0/L1).
+  const skipNames = new Set(['FEEDBACK', 'COPILOT']);
+  const isUsable = (s) => staActive(s) && !skipNames.has(s.n);
 
   if (p2.carry) {
     // === CARRYING ===
-    // DONE deck → deliver
     if (p2.carry.t === 'DONE') {
       botState = 'DELIVER';
       const del = fSta('DELIVERY');
       botNavigate(del.gx + 0.5, del.gy + 0.5);
     } else if (p2.carry.t === 'TMPL') {
       const rc = p2.carry.recipe ? RECIPES[p2.carry.recipe] : null;
-      // No recipe (got an empty TMPL somehow) — drop at PT for P1 to load
+      const c = p2.carry.contents || [];
+      // No recipe yet — load an RQ first
       if (!rc) {
-        botState = 'HANDOFF';
-        const pt = fSta('PASSTHROUGH');
-        botNavigate(pt.gx + 0.5, pt.gy + 0.5);
-        if (gd(p2.gx, p2.gy, pt.gx + 0.5, pt.gy + 0.5) < 1) botPTCooldown = 3000;
+        const ib = fSta('INBOX');
+        if (ib && isUsable(ib) && ib.items.length > 0) {
+          botState = 'LOAD_RQ';
+          botNavigate(ib.gx + 0.5, ib.gy + 0.5);
+        } else {
+          // No RQs available — wait near INBOX
+          botState = 'WAIT_RQ';
+          if (ib) botNavigate(ib.gx + 1.2, ib.gy + 0.5);
+        }
       }
-      // Recipe expired or removed — trash
+      // Recipe expired/removed — trash it
       else if (!orders.some(o => o.recipe === p2.carry.recipe)) {
         botState = 'TRASH';
         const tr = fSta('TRASH');
         botNavigate(tr.gx + 0.5, tr.gy + 0.5);
       } else {
-        const hasAll = rc.requires.every(ing => p2.carry.contents.includes(ing));
+        const hasAll = rc.requires.every(ing => c.includes(ing));
         if (hasAll) {
-          // Take to DECK BUILDER to finalize
           botState = 'BUILD';
           const db = fSta('DECK BUILDER');
           botNavigate(db.gx + 0.5, db.gy + 0.5);
+        } else if (!c.includes('RQ')) {
+          // Need RQ
+          botState = 'LOAD_RQ';
+          const ib = fSta('INBOX');
+          if (ib && ib.items.length > 0) botNavigate(ib.gx + 0.5, ib.gy + 0.5);
+          else if (ib) botNavigate(ib.gx + 1.2, ib.gy + 0.5);
+        } else if (rc.requires.includes('DATA') && !c.includes('DATA')) {
+          // Drop at ANALYSIS to cook DATA
+          const an = fSta('ANALYSIS');
+          if (an && isUsable(an) && an.lockout <= 0 && an.items.length < 2) {
+            botState = 'COOK_DATA';
+            botNavigate(an.gx + 0.5, an.gy + 0.5);
+          } else if (an) {
+            botState = 'WAIT_AN';
+            botNavigate(an.gx + 1.2, an.gy + 0.5);
+          }
         } else {
-          // Missing ingredients that are owner-side (RQ at INBOX, DATA at ANALYSIS)
-          // Send back via PASSTHROUGH
-          botState = 'HANDOFF';
-          const pt = fSta('PASSTHROUGH');
-          botNavigate(pt.gx + 0.5, pt.gy + 0.5);
-          if (gd(p2.gx, p2.gy, pt.gx + 0.5, pt.gy + 0.5) < 1) botPTCooldown = 3000;
+          // Fallback — trash it
+          botState = 'TRASH';
+          const tr = fSta('TRASH');
+          botNavigate(tr.gx + 0.5, tr.gy + 0.5);
         }
       }
     } else {
-      // Unknown carry → trash
       botState = 'TRASH';
       const tr = fSta('TRASH');
       botNavigate(tr.gx + 0.5, tr.gy + 0.5);
@@ -1242,32 +1360,25 @@ function botThink() {
     let bestScore = -Infinity;
 
     for (const s of STA) {
-      if (!BOT_STATIONS.includes(s.n)) continue;
-      if (s.n === 'TRASH' || s.n === 'DELIVERY') continue;
-      // Pickable items: ready (not processing) — for PT, only completable
-      let pickable;
-      if (s.n === 'PASSTHROUGH') {
-        if (botPTCooldown > 0) continue;
-        pickable = s.items.filter(i => {
-          if (i.t === 'DONE') return true;
-          if (i.t === 'TMPL' && i.recipe) {
-            const rc = RECIPES[i.recipe];
-            return rc && rc.requires.every(ing => (i.contents || []).includes(ing));
-          }
-          return false;
-        });
-      } else {
-        pickable = s.items.filter(i => !i.p);
-      }
-      if (pickable.length === 0) continue;
+      if (!isUsable(s)) continue;
+      if (s.n === 'TRASH' || s.n === 'DELIVERY' || s.n === 'INBOX') continue;
+      // Pickable items: ready (not processing)
+      const pickable = s.items.filter(i => !i.p);
+      // TEMPLATES — has TMPLs to grab
+      if (s.n === 'TEMPLATES') {
+        if (pickable.length === 0) continue;
+      } else if (pickable.length === 0) continue;
 
       let sc = 10;
       // Strong preference for DONE items at DECK BUILDER (just deliver them)
       if (s.n === 'DECK BUILDER') sc += 50;
-      // PT pickups are good — finished work coming from P1
-      if (s.n === 'PASSTHROUGH') sc += 30;
-      // COPILOT items are bonused TMPLs
-      if (s.n === 'COPILOT') sc += 20;
+      // ANALYSIS pickup (TMPL with DATA cooked) is high value
+      if (s.n === 'ANALYSIS') {
+        const ready = s.items.find(i => !i.p && i.contents && i.contents.includes('DATA'));
+        if (ready) sc += 40; else continue;
+      }
+      // TEMPLATES — pickup a fresh TMPL
+      if (s.n === 'TEMPLATES') sc += 20;
       const dist = gd(p2.gx, p2.gy, s.gx + 0.5, s.gy + 0.5);
       sc -= dist * 2;
       if (sc > bestScore) { bestScore = sc; target = s; }
@@ -1277,11 +1388,13 @@ function botThink() {
       botState = 'FETCH';
       botNavigate(target.gx + 0.5, target.gy + 0.5);
     } else {
-      // Idle near PASSTHROUGH waiting for P1's handoffs
+      // Idle near TEMPLATES waiting for spawn
       botState = 'IDLE';
-      const pt = fSta('PASSTHROUGH');
-      const idleDist = gd(p2.gx, p2.gy, pt.gx + 1.4, pt.gy + 0.5);
-      if (idleDist > 1.5) botNavigate(pt.gx + 1.4, pt.gy + 0.5);
+      const tm = fSta('TEMPLATES');
+      if (tm) {
+        const idleDist = gd(p2.gx, p2.gy, tm.gx + 1.2, tm.gy + 0.5);
+        if (idleDist > 1.5) botNavigate(tm.gx + 1.2, tm.gy + 0.5);
+      }
     }
   }
 
@@ -1291,9 +1404,9 @@ function botThink() {
 }
 
 function botNavigate(tx, ty) {
-  // Clamp target to grid bounds (same as physics: MN=0.3, MX=GC-0.7, MY=GR-0.7)
+  // Clamp target to grid bounds (no barrier — full map)
   const MN = 0.3, MX = GC - 0.7, MY = GR - 0.7;
-  tx = Math.max(BARRIER_COL + 0.1, Math.min(MX - 0.1, tx)); // bot stays on employee side
+  tx = Math.max(MN + 0.1, Math.min(MX - 0.1, tx));
   ty = Math.max(MN + 0.1, Math.min(MY - 0.1, ty));
 
   const dx = tx - p2.gx;
