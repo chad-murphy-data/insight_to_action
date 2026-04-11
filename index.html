@@ -244,20 +244,7 @@ for(const [k,f] of Object.entries(CARRY_FILES)){
   CARRY_SPRITES[k]={img,ok:false};
   img.onload=()=>{CARRY_SPRITES[k].ok=true};
 }
-// Floor texture — scaled so a single tile covers the whole canvas, eliminating
-// the visible seam where the source bitmap (~924px) starts repeating.
-const FLOOR_IMG=new Image();let floorOk=false;let floorPattern=null;
-FLOOR_IMG.src='assets/sprites/office_floor_texture.png';
-FLOOR_IMG.onload=()=>{
-  floorOk=true;
-  try{
-    floorPattern=ctx.createPattern(FLOOR_IMG,'repeat');
-    if(floorPattern&&floorPattern.setTransform){
-      const sc=Math.max(CW/FLOOR_IMG.naturalWidth,CH/FLOOR_IMG.naturalHeight)*1.05;
-      floorPattern.setTransform(new DOMMatrix().scale(sc,sc));
-    }
-  }catch(e){}
-};
+// Floor is drawn procedurally as warm wood planks — see drawWoodFloor() in render layer.
 // Strip white/light background from boss sprite to match transparent player sprites
 let sbClean=null;
 sb.onload=()=>{
@@ -398,17 +385,144 @@ function spawnCel(gx,gy){const{x,y}=g2s(gx,gy);const em=['🎉','⭐','✨','�
 
 // Drawing functions
 const TC=['#3d5a80','#3a5578'];
+// Wall palette — cream office walls with windows, warm but quiet
+const WALL_LEFT='#e8dcc8';
+const WALL_RIGHT='#d4c4a8';
+const WALL_BASE='#b8a888';
+const WIN_FRAME='#8b7355';
+const WIN_GLASS='rgba(180,210,240,0.55)';
+const WIN_REFLECT='rgba(255,255,255,0.3)';
+// Wood-plank floor colors
+const WOOD_LIGHT='#d4a472';
+const WOOD_DARK='#c89660';
+const WOOD_LINE='#a87040';
+
+function drawWoodFloor(){
+  // Base warm fill
+  ctx.fillStyle=WOOD_LIGHT;
+  ctx.fillRect(0,0,CW,CH);
+  // Alternating plank bands — parallelograms skewed to match iso horizontal axis
+  const plankH=TH*0.9;
+  const slope=TH/TW;
+  const numPlanks=Math.ceil(CH/plankH)+6;
+  const skew=CW*slope*0.5;
+  const colors=[WOOD_LIGHT,WOOD_DARK];
+  for(let i=-3;i<numPlanks;i++){
+    const y0=i*plankH;
+    ctx.beginPath();
+    ctx.moveTo(0,y0);
+    ctx.lineTo(CW,y0-skew);
+    ctx.lineTo(CW,y0-skew+plankH);
+    ctx.lineTo(0,y0+plankH);
+    ctx.closePath();
+    ctx.fillStyle=colors[((i%2)+2)%2];
+    ctx.fill();
+  }
+  // Subtle plank divider lines (same color family, barely visible)
+  ctx.strokeStyle=WOOD_LINE;
+  ctx.lineWidth=0.6;
+  ctx.globalAlpha=0.35;
+  for(let i=-3;i<numPlanks;i++){
+    const y0=i*plankH;
+    ctx.beginPath();
+    ctx.moveTo(0,y0);
+    ctx.lineTo(CW,y0-skew);
+    ctx.stroke();
+  }
+  ctx.globalAlpha=1.0;
+}
+
 function dTile(c,r){
   const{x,y}=g2s(c,r);
   ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+TW/2,y+TH/2);ctx.lineTo(x,y+TH);ctx.lineTo(x-TW/2,y+TH/2);ctx.closePath();
-  if(floorOk){
-    // Subtle tint so grid is visible over the carpet floor, checker pattern retained
-    ctx.fillStyle=(c+r)%2?'rgba(255,255,255,0.05)':'rgba(0,0,0,0.08)';
-    ctx.fill();
-    ctx.strokeStyle='rgba(0,0,0,0.25)';ctx.lineWidth=1;ctx.stroke();
-  }else{
-    ctx.fillStyle=TC[(c+r)%2];ctx.fill();
-    ctx.strokeStyle='#2a3f5f';ctx.lineWidth=1;ctx.stroke();
+  // Very subtle checker — just enough to show the grid over the wood
+  ctx.fillStyle=(c+r)%2?'rgba(255,255,255,0.03)':'rgba(0,0,0,0.04)';
+  ctx.fill();
+  // Thin grid lines, barely visible
+  ctx.strokeStyle='rgba(100,60,20,0.12)';
+  ctx.lineWidth=0.5;
+  ctx.stroke();
+}
+
+function drawWallFace(x0,y0,x1,y1,wallH,faceColor,idx,total){
+  // Face parallelogram: BL=(x0,y0) BR=(x1,y1) TR=(x1,y1-wallH) TL=(x0,y0-wallH)
+  ctx.beginPath();
+  ctx.moveTo(x0,y0);
+  ctx.lineTo(x1,y1);
+  ctx.lineTo(x1,y1-wallH);
+  ctx.lineTo(x0,y0-wallH);
+  ctx.closePath();
+  ctx.fillStyle=faceColor;
+  ctx.fill();
+  // Baseboard stroke (bottom edge where wall meets floor)
+  ctx.strokeStyle=WALL_BASE;
+  ctx.lineWidth=1.5;
+  ctx.beginPath();
+  ctx.moveTo(x0,y0);
+  ctx.lineTo(x1,y1);
+  ctx.stroke();
+  // Top trim stroke
+  ctx.strokeStyle='rgba(0,0,0,0.18)';
+  ctx.lineWidth=0.8;
+  ctx.beginPath();
+  ctx.moveTo(x0,y0-wallH);
+  ctx.lineTo(x1,y1-wallH);
+  ctx.stroke();
+  // Windows every 2 segments, skipping corners
+  if(idx>0&&idx<total-1&&idx%2===1){
+    drawWindow(x0,y0,x1,y1,wallH);
+  }
+}
+
+function drawWindow(x0,y0,x1,y1,wallH){
+  // Parameterize the wall face as (u,v): u along base edge [0..1], v from top[0] to bottom[1]
+  const uL=0.2,uR=0.8,vT=0.25,vB=0.70;
+  const pt=(u,v)=>({x:x0+(x1-x0)*u,y:y0+(y1-y0)*u-wallH*(1-v)});
+  const tl=pt(uL,vT),tr=pt(uR,vT),br=pt(uR,vB),bl=pt(uL,vB);
+  // Glass
+  ctx.beginPath();
+  ctx.moveTo(tl.x,tl.y);
+  ctx.lineTo(tr.x,tr.y);
+  ctx.lineTo(br.x,br.y);
+  ctx.lineTo(bl.x,bl.y);
+  ctx.closePath();
+  ctx.fillStyle=WIN_GLASS;
+  ctx.fill();
+  // Frame
+  ctx.strokeStyle=WIN_FRAME;
+  ctx.lineWidth=1.5;
+  ctx.stroke();
+  // Center mullion (vertical divider)
+  const mt=pt(0.5,vT),mb=pt(0.5,vB);
+  ctx.beginPath();
+  ctx.moveTo(mt.x,mt.y);
+  ctx.lineTo(mb.x,mb.y);
+  ctx.stroke();
+  // Highlight reflection (small shape in upper-left of left pane)
+  const h1=pt(uL+0.04,vT+0.06),h2=pt(uL+0.14,vT+0.06),h3=pt(uL+0.14,vT+0.28),h4=pt(uL+0.04,vT+0.28);
+  ctx.beginPath();
+  ctx.moveTo(h1.x,h1.y);
+  ctx.lineTo(h2.x,h2.y);
+  ctx.lineTo(h3.x,h3.y);
+  ctx.lineTo(h4.x,h4.y);
+  ctx.closePath();
+  ctx.fillStyle=WIN_REFLECT;
+  ctx.fill();
+}
+
+function drawWalls(){
+  const WALL_H=TH*1.8;
+  // Back-left wall: along col 0 tiles, using each tile's top-left edge
+  // (left corner -> top corner, i.e. (x-TW/2,y+TH/2) -> (x,y))
+  for(let r=0;r<GR;r++){
+    const{x,y}=g2s(0,r);
+    drawWallFace(x-TW/2,y+TH/2,x,y,WALL_H,WALL_LEFT,r,GR);
+  }
+  // Back-right wall: along row 0 tiles, using each tile's top-right edge
+  // (top corner -> right corner, i.e. (x,y) -> (x+TW/2,y+TH/2))
+  for(let c=0;c<GC;c++){
+    const{x,y}=g2s(c,0);
+    drawWallFace(x,y,x+TW/2,y+TH/2,WALL_H,WALL_RIGHT,c,GC);
   }
 }
 
@@ -681,11 +795,11 @@ function interact(p){
   // ============ DROP / INTERACT (with carry) ============
   const carry=p.carry;
 
-  // TRASH: discard, -1 point
+  // TRASH: discard, -1 point (amber, not alarm)
   if(nr.n==='TRASH'){
     score=Math.max(0,score-1);
-    staFloats.push({gx:nr.gx,gy:nr.gy,text:'🗑️ -1',color:'#f44',life:1.2,ml:1.2});
-    nr.flash='#f44';nr.flashT=.4;
+    staFloats.push({gx:nr.gx,gy:nr.gy,text:'🗑️ −1',color:'#cc8844',life:1.2,ml:1.2});
+    nr.flash='#cc8844';nr.flashT=.4;
     p.carry=null;return;
   }
 
@@ -937,10 +1051,12 @@ function update(){
       orderTimer=0;
     }
   }
-  // Order timers and expiry
+  // Order timers and expiry — gentle -1 (floor at 0), amber float, no red alarm
   for(let i=orders.length-1;i>=0;i--){
     orders[i].elapsed+=.016;
     if(orders[i].elapsed>=orders[i].timeLimit){
+      score=Math.max(0,score-1);
+      staFloats.push({gx:5,gy:5,text:'−1 (expired)',color:'#cc8844',life:1.2,ml:1.2});
       orderFlashes.push({idx:i,life:.3,ml:.3});
       orders.splice(i,1);
     }
@@ -1042,8 +1158,9 @@ function update(){
 
 function render(){
   ctx.clearRect(0,0,CW,CH);ctx.fillStyle='#1a1a2e';ctx.fillRect(0,0,CW,CH);
-  if(floorPattern){ctx.fillStyle=floorPattern;ctx.fillRect(0,0,CW,CH);}
+  drawWoodFloor();
   for(let r=0;r<GR;r++)for(let c=0;c<GC;c++)dTile(c,r);
+  drawWalls();
   // Order cards (top-left overlay)
   const OW=280,OH=110,OX=16,OY=16,OG=10;
   for(let i=0;i<orders.length;i++){
@@ -1066,7 +1183,7 @@ function render(){
     ctx.fillRect(bx,by_+bh*(1-pct),bw,bh*pct);
     ctx.restore();
   }
-  for(const f of orderFlashes){const cy=OY+f.idx*(OH+OG);ctx.save();ctx.globalAlpha=f.life/f.ml*.6;ctx.fillStyle='#f44';ctx.beginPath();ctx.roundRect(OX,cy,OW,OH,8);ctx.fill();ctx.restore();}
+  for(const f of orderFlashes){const cy=OY+f.idx*(OH+OG);ctx.save();ctx.globalAlpha=f.life/f.ml*.5;ctx.fillStyle='#cc8844';ctx.beginPath();ctx.roundRect(OX,cy,OW,OH,8);ctx.fill();ctx.restore();}
   const dr=[];
   for(const s of STA){
     if(!staActive(s))continue;
@@ -1193,25 +1310,33 @@ function showGameOverOverlay(){
   if(!overlay)return;
   const cfg=LEVELS[currentLevel];
   const isTut=cfg&&cfg.isTutorial;
-  // Header
+  // Celebration-only header — tone changes by score but never negative
   const hdr=document.getElementById('go-header');
-  if(hdr)hdr.textContent=isTut?'YOU GOT IT!':"TIME'S UP!";
+  if(hdr){
+    hdr.textContent = score>=10 ? 'INCREDIBLE! 🔥' :
+                      score>=5  ? 'GREAT WORK! ⭐' :
+                                  'NICE TRY! 💪';
+  }
   document.getElementById('go-score').textContent='Score: '+score;
-  document.getElementById('go-deliveries').textContent='Deliveries: '+deliveries;
-  const thresholds=cfg.starThresholds;
-  let stars=0;
-  if(deliveries>=thresholds[3])stars=3;
-  else if(deliveries>=thresholds[2])stars=2;
-  else if(deliveries>=thresholds[1])stars=1;
-  document.getElementById('go-stars').textContent=stars>0?'⭐'.repeat(stars):'💀';
-  let rank;
-  if(isTut){
-    rank=stars>0?'Level 1 adds DATA analysis — same idea, one more step.':'Try again — grab a 📋 and load it!';
-  }else if(stars===3)rank='Insight Master!';
-  else if(stars===2)rank='Solid kitchen.';
-  else if(stars===1)rank='Made it through.';
-  else rank='Try again — your decks need work!';
-  document.getElementById('go-rank').textContent=rank;
+  document.getElementById('go-deliveries').textContent=
+    deliveries+(deliveries===1?' deck delivered!':' decks delivered!');
+  // Fun icon + rank label keyed off deliveries — no skulls, no failure
+  const starsEl=document.getElementById('go-stars');
+  const rankEl=document.getElementById('go-rank');
+  let icon,rank;
+  if(deliveries>=7){
+    icon='🏆';rank="Insight Machine \u2014 you're unstoppable.";
+  }else if(deliveries>=5){
+    icon='🎉';rank='On a roll! The client is happy.';
+  }else if(deliveries>=3){
+    icon='📊';rank='Solid kitchen. Room to grow!';
+  }else if(deliveries>=1){
+    icon='📋';rank='You shipped something \u2014 that counts!';
+  }else{
+    icon='☕';rank='Busy day. The decks are coming.';
+  }
+  if(starsEl)starsEl.textContent=icon;
+  if(rankEl)rankEl.textContent=rank;
   // Show "Try Level 1" button only after a tutorial round
   const tryBtn=document.getElementById('go-try-level1');
   if(tryBtn)tryBtn.style.display=isTut?'':'none';
