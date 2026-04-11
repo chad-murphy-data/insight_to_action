@@ -197,19 +197,22 @@ function sendInput(input) {
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 // Grid extents: width=(GC+GR)/2*TW, height=(GC+GR)/2*TH.
-// Tiles use a fixed iso aspect ratio (TILE_RATIO ≈ TW/TH). 1.9 sits between
-// the classic 2:1 iso (2.0) and a true top-down angle — flat enough that the
-// canvas uses most of a 16:9 viewport horizontally, but still steeper than
-// 2:1 so the desk sprites read as sitting on their tiles instead of tipped.
+// Tiles use a fixed iso aspect ratio (TILE_RATIO ≈ TW/TH). 1.95 sits just
+// barely steeper than the classic 2:1 iso — flat enough that the canvas
+// uses most of a 16:9 viewport horizontally, while still keeping the desk
+// sprites grounded on their tiles instead of looking tipped forward.
 const GC=12,GR=10;
-const TILE_RATIO=1.9;
-// Top margin must leave room for the wall tops above row 0 AND character
-// heads above the topmost row. Walls rise ~2.8*TH; we budget 130px here.
-const TOP_MARGIN=130,SIDE_MARGIN=10,BOTTOM_MARGIN=10;
-// Maximum viewport budget — leaves ~100px vertical for HUD + browser chrome.
-// The cap (920) keeps the canvas from getting wastefully tall on big monitors.
+const TILE_RATIO=1.95;
+// Top margin leaves room for wall tops above row 0. Walls rise ~2.8*TH so
+// the very back corner clips above the canvas — that's intentional since
+// the convergence point isn't a meaningful visual element. 110px keeps the
+// visible wall trim and windows fully on-canvas at common viewport sizes.
+const TOP_MARGIN=110,SIDE_MARGIN=10,BOTTOM_MARGIN=10;
+// Maximum viewport budget — leaves ~90px vertical for HUD + browser chrome
+// (HUD measures ~80px so there's a small buffer). The cap (940) keeps the
+// canvas from getting wastefully tall on big monitors.
 const _maxW=Math.min(Math.max(window.innerWidth-40,640),1700);
-const _maxH=Math.min(Math.max(window.innerHeight-100,380),920);
+const _maxH=Math.min(Math.max(window.innerHeight-90,380),940);
 const _halfSum=(GC+GR)/2;
 // Try to fit the grid by width first; if the resulting height blows our
 // budget, fall back to fitting by height. Either way, TW/TH stays at
