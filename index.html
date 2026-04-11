@@ -23,8 +23,19 @@
   #controls{margin-top:8px;display:flex;gap:12px;flex-wrap:wrap;justify-content:center;font-size:10px}
   .p1c{color:#88bbff}.p2c{color:#ffbb88}
   .key{display:inline-block;background:#2a2a4e;border:1px solid #444466;border-radius:3px;padding:1px 5px;font-family:'Press Start 2P',monospace;font-size:7px;color:#ccccdd}
-  #hud{margin-top:6px;display:flex;gap:20px;font-size:12px}
+  #hud{margin-top:6px;display:flex;gap:20px;font-size:12px;align-items:center;flex-wrap:wrap;justify-content:center}
   .hv{color:#f0c040;font-weight:bold}
+  #timer.danger{color:#ff4444;animation:pulse 0.6s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+  #game-container{position:relative}
+  #game-over-overlay{display:none;position:absolute;inset:0;background:rgba(10,10,30,0.92);flex-direction:column;align-items:center;justify-content:center;color:#f0c040;z-index:100;font-family:'Press Start 2P',monospace;text-align:center;padding:20px}
+  #game-over-overlay.show{display:flex}
+  #go-header{font-size:36px;margin-bottom:16px;text-shadow:3px 3px 0 #d4780088,0 0 30px #f0c04066;letter-spacing:3px}
+  #go-score{font-size:18px;color:#fff;margin:8px 0}
+  #go-deliveries{font-size:13px;color:#bbb;margin:6px 0}
+  #go-stars{font-size:52px;margin:16px 0;min-height:60px}
+  #go-rank{font-size:14px;color:#f0c040;margin:6px 0 20px}
+  #go-buttons{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
   .mbtn{font-family:"Press Start 2P",monospace;font-size:16px;width:50px;height:50px;border:2px solid #f0c040;background:#2a2a4e;color:#f0c040;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center}  .mbtn:active,.mbtn.pressed{background:#f0c04044}  @media(pointer:coarse){#mobile-controls{display:flex!important}}
 </style>
 </head>
@@ -45,23 +56,38 @@
   </div>
   <div id="room-code" style="display:none"></div>
   <div id="status"></div>
-  <p style="font-size:10px;color:#444;margin-top:40px">Owner: Inbox → Analysis | Pass-Through | Employee: Deck Builder → Delivery</p>
+  <p style="font-size:10px;color:#444;margin-top:40px">P1: WASD+SPACE | P2: IJKL+ENTER | Both sides of the kitchen</p>
 </div>
 
 <!-- GAME -->
 <div id="game-wrap">
-  <div id="game-container"><canvas id="game"></canvas></div>
+  <div id="game-container">
+    <canvas id="game"></canvas>
+    <div id="game-over-overlay">
+      <div id="go-header">TIME'S UP!</div>
+      <div id="go-score">Score: 0</div>
+      <div id="go-deliveries">Deliveries: 0</div>
+      <div id="go-stars"></div>
+      <div id="go-rank"></div>
+      <div id="go-buttons">
+        <button class="btn" id="go-play-again">Play Again</button>
+        <button class="btn" id="go-lobby">Back to Lobby</button>
+      </div>
+    </div>
+  </div>
   <div id="controls">
-    <span class="p1c"><span class="key">WASD</span> + <span class="key">SPACE</span> — Owner</span>
-    <span class="p2c"><span class="key">IJKL</span> + <span class="key">ENTER</span> — Employee</span>
-    <span style="color:#f0c040">Owner side ← | Pass-Through | → Employee side</span>
+    <span class="p1c"><span class="key">WASD</span> + <span class="key">SPACE</span> — P1</span>
+    <span class="p2c"><span class="key">IJKL</span> + <span class="key">ENTER</span> — P2</span>
+    <span style="color:#f0c040">Grab a 📋 template, stack ingredients, deliver!</span>
   </div>
   <div id="hud">
+    <span>LVL <span class="hv" id="lvl">1</span></span>
     <span>Score: <span class="hv" id="score">0</span></span>
-    <span class="p1c">Owner: <span class="hv" id="p1c">—</span></span>
-    <span class="p2c">Employee: <span class="hv" id="p2c">—</span></span>
+    <span>Time: <span class="hv" id="timer">2:30</span></span>
+    <span class="p1c">P1: <span class="hv" id="p1c">—</span></span>
+    <span class="p2c">P2: <span class="hv" id="p2c">—</span></span>
   </div>
-  <div style="margin-top:4px;font:9px 'Outfit',sans-serif;color:#888">💜 Feedback +1 | 🤖 Copilot ±1</div>
+  <div style="margin-top:4px;font:9px 'Outfit',sans-serif;color:#888">📋 Template | ❓ RQ | 📊 Data | ✅ Deck | 💜 Feedback | 🤖 Copilot</div>
   <!-- Mobile Controls -->  <div id="mobile-controls" style="display:none;margin-top:12px;user-select:none;-webkit-user-select:none;touch-action:none">    <div style="display:flex;align-items:center;gap:20px">      <div style="display:grid;grid-template-columns:50px 50px 50px;grid-template-rows:50px 50px 50px;gap:4px">        <div></div>        <button class="mbtn" data-key="w">&#9650;</button>        <div></div>        <button class="mbtn" data-key="a">&#9664;</button>        <button class="mbtn" data-key="s">&#9660;</button>        <button class="mbtn" data-key="d">&#9654;</button>      </div>      <button class="mbtn act-btn" data-key=" " style="width:80px;height:80px;border-radius:50%;font-size:14px">ACT</button>    </div>  </div>
 </div>
 
@@ -246,49 +272,77 @@ const GRID_X_CENTER_ADJ=(GC-GR)*TW/4;
 function g2s(gx,gy){return{x:CW/2-GRID_X_CENTER_ADJ+(gx-gy)*(TW/2),y:GRID_Y_OFFSET+(gx+gy)*(TH/2)}}
 function gd(ax,ay,bx,by){return Math.sqrt((ax-bx)**2+(ay-by)**2)}
 
+// New tem-PLATE recipe model: requires lists ingredients that must be in TMPL.contents
 const RECIPES = {
   QUICK_STAT: {
     name: 'Quick Stat', points: 1, color: '#88bbff', emoji: '📈',
-    steps: ['INBOX', 'DELIVERY']
+    requires: ['RQ'], level: 1,
   },
   FULL_READOUT: {
     name: 'Full Readout', points: 2, color: '#f0c040', emoji: '📊',
-    steps: ['INBOX', 'ANALYSIS', 'DELIVERY']
+    requires: ['RQ', 'DATA'], level: 1,
   },
   PSYCH_INSTRUMENT: {
     name: 'Psych Instrument', points: 3, color: '#ff8c42', emoji: '🧠',
-    steps: ['INBOX', 'ANALYSIS', 'DECK BUILDER', 'DELIVERY']
+    requires: ['RQ', 'DATA', 'LIT'], level: 2,
   },
   FRAMEWORK_DECK: {
     name: 'Framework Deck', points: 4, color: '#d4a843', emoji: '🏗️',
-    steps: ['INBOX', 'ANALYSIS', 'DECK BUILDER', 'FEEDBACK', 'DELIVERY']
-  }
+    requires: ['RQ', 'DATA', 'LIT'], level: 2, needsFeedback: true,
+  },
+};
+// Per-level config: which recipes spawn, which stations are active, star targets
+const LEVELS = {
+  1: {
+    orders: ['QUICK_STAT', 'FULL_READOUT'],
+    synthesisActive: false,
+    starThresholds: { 1: 3, 2: 5, 3: 7 },
+  },
+  2: {
+    orders: ['QUICK_STAT', 'FULL_READOUT', 'PSYCH_INSTRUMENT', 'FRAMEWORK_DECK'],
+    synthesisActive: true,
+    starThresholds: { 1: 4, 2: 6, 3: 9 },
+  },
 };
 let orders = [];
-const MAX_ORDERS = 3, ORDER_INTERVAL = 15;
+const MAX_ORDERS = 3, ORDER_INTERVAL = 12;
 let orderTimer = 0;
 const orderFlashes = []; // {x,y,life,ml}
 
-const ITEMS={
-  RAW:{name:'Raw Insight',color:'#e07040',sym:'📋',next:'ANA',st:'INBOX'},
-  ANA:{name:'Analyzed',color:'#40a0e0',sym:'📊',next:'DRAFT',st:'ANALYSIS'},
-  DRAFT:{name:'Draft Deck',color:'#e0c040',sym:'📑',next:'DONE',st:'DECK BUILDER'},
-  DONE:{name:'Polished',color:'#50b060',sym:'✅',next:null,st:'FEEDBACK'},
+// New item set: TMPL is the carrier; RQ/DATA/LIT are stacked into TMPL.contents; DONE is final
+const ITEMS = {
+  TMPL: { name: 'Deck Template',  color: '#aaaaaa', sym: '📋', stackable: true  },
+  RQ:   { name: 'Research Q',     color: '#88bbff', sym: '❓', stackable: true  },
+  DATA: { name: 'Analyzed Data',  color: '#40a0e0', sym: '📊', stackable: true  },
+  LIT:  { name: 'Lit Review',     color: '#f0c040', sym: '📚', stackable: true  },
+  DONE: { name: 'Polished Deck',  color: '#50b060', sym: '✅', stackable: false },
 };
 const STA=[
-  {n:'INBOX',gx:1,gy:4,c:'#e07040',items:[],pt:0},
-  {n:'ANALYSIS',gx:3,gy:1,c:'#40a0e0',items:[],pt:2.0},
+  {n:'TEMPLATES',gx:1,gy:7,c:'#aaaaaa',items:[],pt:0,maxQ:6},
+  {n:'INBOX',gx:1,gy:4,c:'#88bbff',items:[],pt:0,maxQ:3},
+  {n:'ANALYSIS',gx:3,gy:1,c:'#40a0e0',items:[],pt:2.5,lockout:0},
   {n:'FEEDBACK',gx:2,gy:8,c:'#9b59b6',items:[],pt:3.0,maxQ:1},
   {n:'PASSTHROUGH',gx:5,gy:4,c:'#aaaaaa',items:[],pt:0,maxQ:4},
   {n:'TRASH',gx:5,gy:7,c:'#cc4444',items:[],pt:0,maxQ:99},
-  {n:'DECK BUILDER',gx:8,gy:2,c:'#e0c040',items:[],pt:1.5},
+  {n:'SYNTHESIS',gx:8,gy:7,c:'#f0c040',items:[],pt:1.2},
+  {n:'DECK BUILDER',gx:8,gy:2,c:'#e0c040',items:[],pt:1.0},
   {n:'DELIVERY',gx:10,gy:5,c:'#50b060',items:[],pt:0},
   {n:'COPILOT',gx:9,gy:8,c:'#1abc9c',items:[],pt:3.0,maxQ:1},
 ];
-const SICO={'INBOX':'📥','ANALYSIS':'🔬','DECK BUILDER':'🖥️','DELIVERY':'📤','FEEDBACK':'👔','COPILOT':'🤖','PASSTHROUGH':'🔲','TRASH':'🗑️'};
+const SICO={'TEMPLATES':'📋','INBOX':'❓','ANALYSIS':'🔬','DECK BUILDER':'🖥️','DELIVERY':'📤','FEEDBACK':'👔','COPILOT':'🤖','PASSTHROUGH':'🔲','TRASH':'🗑️','SYNTHESIS':'📚'};
 function fSta(n){return STA.find(s=>s.n===n)}
 
-let score=0,spT=0;const SPI=4,IR=1.4;
+// Game state and tuning constants
+let score=0,deliveries=0,spT=0,tmplT=0;
+const RQ_SPAWN_INTERVAL=5, RQ_MAX_QUEUE=3;
+const TMPL_SPAWN_INTERVAL=6, TMPL_MAX_QUEUE=6;
+const ANALYSIS_BURN_TIME=8, ANALYSIS_OVERLOAD_LOCKOUT=3;
+const ROUND_LENGTH=150; // 2:30
+const IR=1.4;
+let gamePhase='countdown'; // 'countdown' | 'playing' | 'gameover'
+let roundTimer=ROUND_LENGTH;
+let countdownTimer=3.0;
+let currentLevel=1;
 const particles=[];
 const staFloats=[]; // {gx,gy,text,color,life,ml}
 let fbFrozen=null; // player frozen at FEEDBACK during processing
@@ -432,9 +486,45 @@ function dSta(s){
     else{ctx.fillStyle='#2c3e50';ctx.fillRect(bx-8,by_-20,16,24);ctx.beginPath();ctx.arc(bx,by_-28,10,0,Math.PI*2);ctx.fillStyle='#f4c89a';ctx.fill();}
     // (bubble drawn above frozen player instead)
   }
-  s.items.forEach((it,i)=>{const inf=ITEMS[it.t],ix=x+(i-(s.items.length-1)/2)*18,ib=dT+TH*.6+36;let bob=it.p?Math.abs(Math.sin(t*4+i))*-6:0;ctx.save();ctx.font='14px sans-serif';ctx.textAlign='center';ctx.fillText(inf.sym,ix,ib+bob);
-  if(it.p&&s.pt>0){const pc=it.pr/s.pt,bw=24,bh=4,bx=ix-bw/2,by=ib+4;ctx.fillStyle='#222';ctx.fillRect(bx,by,bw,bh);const gr=ctx.createLinearGradient(bx,0,bx+bw,0);gr.addColorStop(0,s.c);gr.addColorStop(1,'#fff');ctx.fillStyle=gr;ctx.fillRect(bx,by,bw*pc,bh);for(let pp=0;pp<3;pp++){const pt_=t*3+pp*2.1+i;ctx.globalAlpha=(Math.sin(pt_*3)+1)/2*.7;ctx.fillStyle=s.c;ctx.beginPath();ctx.arc(ix+Math.sin(pt_*1.7)*12,ib-8+Math.cos(pt_*2.3)*8+bob,1.5,0,Math.PI*2);ctx.fill();}ctx.globalAlpha=1;}
-  if(it.rdy&&!it.p&&Math.sin(t*6)>0){ctx.font='bold 8px "Outfit",sans-serif';ctx.fillStyle='#4f4';ctx.textAlign='center';ctx.fillText('DONE!',ix,ib-10);}ctx.restore();});
+  s.items.forEach((it,i)=>{
+    const inf=ITEMS[it.t]||{sym:'?'};
+    const ix=x+(i-(s.items.length-1)/2)*22,ib=dT+TH*.6+36;
+    let bob=it.p?Math.abs(Math.sin(t*4+i))*-6:0;
+    ctx.save();ctx.font='16px sans-serif';ctx.textAlign='center';
+    ctx.fillText(inf.sym,ix,ib+bob);
+    // For TMPLs, show stacked content row beneath the icon
+    if(it.t==='TMPL'&&it.contents&&it.contents.length>0){
+      ctx.font='10px sans-serif';
+      const row=it.contents.map(k=>ITEMS[k]?ITEMS[k].sym:'').join('');
+      ctx.fillText(row,ix,ib+bob+11);
+    }
+    // Processing bar
+    if(it.p&&s.pt>0){
+      const pc=it.pr/s.pt,bw=26,bh=4,bx=ix-bw/2,by=ib+18;
+      ctx.fillStyle='#222';ctx.fillRect(bx,by,bw,bh);
+      const gr=ctx.createLinearGradient(bx,0,bx+bw,0);gr.addColorStop(0,s.c);gr.addColorStop(1,'#fff');
+      ctx.fillStyle=gr;ctx.fillRect(bx,by,bw*pc,bh);
+    }
+    // Burn timer at ANALYSIS (visible warning ring)
+    if(s.n==='ANALYSIS'&&!it.p&&it.contents&&it.contents.includes('DATA')&&it.burnTimer>0){
+      const bp=it.burnTimer/ANALYSIS_BURN_TIME;
+      ctx.strokeStyle=bp>.6?'#f44':'#fa0';ctx.lineWidth=2;
+      ctx.beginPath();ctx.arc(ix,ib-2,14,0,Math.PI*2*bp);ctx.stroke();
+    }
+    // Ready indicator (non-processing TMPL/DONE on station)
+    if(!it.p&&Math.sin(t*6)>0){
+      ctx.font='bold 8px "Outfit",sans-serif';ctx.fillStyle='#4f4';
+      ctx.fillText('READY',ix,ib-12);
+    }
+    ctx.restore();
+  });
+  // ANALYSIS lockout indicator
+  if(s.n==='ANALYSIS'&&s.lockout>0){
+    ctx.save();ctx.font='bold 10px "Press Start 2P",monospace';ctx.textAlign='center';
+    ctx.fillStyle='#f44';
+    ctx.fillText('🔒 '+s.lockout.toFixed(1)+'s',x,dT-44);
+    ctx.restore();
+  }
 }
 
 function dPl(p,sp,ok){
@@ -442,100 +532,249 @@ function dPl(p,sp,ok){
   if(ok)ctx.drawImage(sp,p.fr*FW,p.dir*FH,FW,FH,x-DW/2,y+TH/2-DH+10,DW,DH);
   else{ctx.beginPath();ctx.arc(x,y+TH/2,16,0,Math.PI*2);ctx.fillStyle='#f0c040';ctx.fill();}
   if(p.carry){
-    const inf=ITEMS[p.carry.t],bob=Math.sin(Date.now()/300)*2;
-    const entry=CARRY_SPRITES[p.carry.t];
-    if(entry&&entry.ok){
-      // Draw carry icon held "in front" of character at hip/hand height,
-      // offset by facing direction so it looks like it's held out in front.
-      // DIR: DL=0, UL=1, UR=2, DR=3
-      const dx={0:-12,1:-12,2:12,3:12}[p.dir]||0;
-      const dy={0:2,1:-2,2:-2,3:2}[p.dir]||0;
-      const iw=Math.round(DW*0.8),ih=iw*(entry.img.naturalHeight/entry.img.naturalWidth);
-      // Hip level = 22% of character height above feet (character's feet are
-      // at y+TH/2+10). Low enough that it never overlaps the face.
-      ctx.drawImage(entry.img,x-iw/2+dx,y+TH/2+10-DH*0.22-ih/2+dy+bob,iw,ih);
-    }else{
-      // Fallback: circle + emoji bubble above head
-      ctx.save();ctx.beginPath();ctx.arc(x,y-DH/2-8+bob,14,0,Math.PI*2);ctx.fillStyle=inf.color+'cc';ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();ctx.font='14px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(inf.sym,x,y-DH/2-7+bob);ctx.restore();
+    const bob=Math.sin(Date.now()/300)*2;
+    if(p.carry.t==='DONE'){
+      // Polished deck — green glow, single ✅
+      ctx.save();
+      const cx=x,cy=y-DH*0.55+bob;
+      ctx.shadowColor='#4f4';ctx.shadowBlur=14;
+      ctx.fillStyle='#4f4cc';
+      ctx.beginPath();ctx.arc(cx,cy,18,0,Math.PI*2);ctx.fill();
+      ctx.shadowBlur=0;
+      ctx.font='22px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText('✅',cx,cy);
+      ctx.restore();
+    }else if(p.carry.t==='TMPL'){
+      // Template + stacked ingredient row (📋❓📊...)
+      const icons=['📋'];
+      for(const c of (p.carry.contents||[])){if(ITEMS[c])icons.push(ITEMS[c].sym);}
+      const isComplete=tmplComplete(p.carry);
+      const iconSize=14;
+      const totalW=icons.length*iconSize+8;
+      const bx=x-totalW/2,by=y-DH*0.55+bob;
+      ctx.save();
+      // Bubble background — green-tinted when complete
+      ctx.fillStyle=isComplete?'rgba(40,160,60,0.85)':'rgba(0,0,0,0.55)';
+      ctx.strokeStyle=isComplete?'#7fff7f':'#fff8';
+      ctx.lineWidth=isComplete?2:1;
+      if(isComplete){ctx.shadowColor='#4f4';ctx.shadowBlur=8;}
+      ctx.beginPath();ctx.roundRect(bx,by-9,totalW,18,4);ctx.fill();ctx.stroke();
+      ctx.shadowBlur=0;
+      ctx.font=iconSize+'px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+      for(let i=0;i<icons.length;i++){
+        ctx.fillText(icons[i],bx+4+iconSize/2+i*iconSize,by);
+      }
+      if(isComplete){
+        ctx.font='bold 7px "Press Start 2P",monospace';
+        ctx.fillStyle='#fff';
+        ctx.fillText('READY',x,by-14);
+      }
+      ctx.restore();
     }
   }
 }
 
+// Helper: does this TMPL satisfy its assigned recipe's required ingredients?
+function tmplComplete(carry){
+  if(!carry||carry.t!=='TMPL'||!carry.recipe)return false;
+  const rc=RECIPES[carry.recipe];if(!rc)return false;
+  return rc.requires.every(ing=>(carry.contents||[]).includes(ing));
+}
+
+// Helper: build a fresh carry object from a station item
+function carryFromItem(it){
+  return{t:it.t,contents:it.contents?[...it.contents]:[],recipe:it.recipe||null,bonus:it.bonus||0};
+}
+
+// Pick the best order to assign to a freshly-loaded TMPL (prefer matching higher value)
+function assignRecipeForRQ(){
+  const pool=LEVELS[currentLevel].orders;
+  let best=null,bestPts=-1;
+  for(const o of orders){
+    if(!pool.includes(o.recipe))continue;
+    const r=RECIPES[o.recipe];
+    if(r.requires.includes('RQ')&&r.points>bestPts){bestPts=r.points;best=o.recipe;}
+  }
+  return best;
+}
+
 function interact(p){
-  let nr=null,nd=Infinity;for(const s of STA){const d=gd(p.gx,p.gy,s.gx+.5,s.gy+.5);if(d<IR&&d<nd){nr=s;nd=d;}}
+  let nr=null,nd=Infinity;
+  for(const s of STA){
+    if(s.n==='SYNTHESIS'&&!LEVELS[currentLevel].synthesisActive)continue;
+    const d=gd(p.gx,p.gy,s.gx+.5,s.gy+.5);
+    if(d<IR&&d<nd){nr=s;nd=d;}
+  }
   if(!nr)return;
-  if(p.carry){
-    const rc=p.carry.recipe?RECIPES[p.carry.recipe]:null;
-    const steps=rc?rc.steps:null;
-    const si=p.carry.stepIdx||0;
-    const nextStep=steps?steps[si+1]:null;
 
-    // PASSTHROUGH: always accept any item (transfer counter between sides)
-    if(nr.n==='PASSTHROUGH'&&nr.items.length<(nr.maxQ||99)){
-      nr.items.push({t:p.carry.t,p:false,pr:0,rdy:true,rt:p.carry.t,bonus:p.carry.bonus||0,recipe:p.carry.recipe,stepIdx:p.carry.stepIdx||0});
-      p.carry=null;return;
+  // ============ PICKUP (no carry) ============
+  if(!p.carry){
+    // INBOX requires a template first
+    if(nr.n==='INBOX'){
+      staFloats.push({gx:nr.gx,gy:nr.gy,text:'Need template! 📋',color:'#f44',life:1.2,ml:1.2});
+      return;
     }
-
-    // TRASH: discard any item, -1 point penalty
-    if(nr.n==='TRASH'){
-      score=Math.max(0,score-1);
-      staFloats.push({gx:nr.gx,gy:nr.gy,text:'🗑️ -1',color:'#f44',life:1.2,ml:1.2});
-      nr.flash='#f44';nr.flashT=.4;
-      p.carry=null;return;
-    }
-
-    if(nr.n==='DELIVERY'){
-      // Deliver if DELIVERY is the next step (or no recipe / legacy)
-      if(!steps||nextStep==='DELIVERY'){
-        const pts=rc?Math.max(0,rc.points+(p.carry.bonus||0)):Math.max(0,1+(p.carry.bonus||0));
-        score+=pts;spawnCel(nr.gx,nr.gy);
-        // Fulfill matching order
-        if(p.carry.recipe){const oi=orders.findIndex(o=>o.recipe===p.carry.recipe);if(oi>=0)orders.splice(oi,1);}
-        p.carry=null;
-      } else {
-        // Wrong delivery — rejection shake + buzzer
-        staFloats.push({gx:nr.gx,gy:nr.gy,text:'❌ WRONG',color:'#f44',life:1,ml:1});
-        nr.flash='#f44';nr.flashT=.4;
+    // TEMPLATES: grab a fresh empty template
+    if(nr.n==='TEMPLATES'){
+      if(nr.items.length>0){
+        nr.items.pop();
+        p.carry={t:'TMPL',contents:[],recipe:null,bonus:0};
       }
+      return;
     }
-    // COPILOT: optional detour, accept if not at queue limit
-    else if(nr.n==='COPILOT'&&nr.items.length<(nr.maxQ||99)&&p.carry.t!=='DONE'){
-      nr.items.push({t:p.carry.t,p:true,pr:0,bonus:p.carry.bonus||0,recipe:p.carry.recipe,stepIdx:si});p.carry=null;
-    }
-    // Recipe-guided routing: drop at next step station
-    else if(steps&&nextStep===nr.n){
-      // Processing station — item needs processing time
-      const sta=fSta(nr.n);const needsProc=sta.pt>0;
-      nr.items.push({t:p.carry.t,p:needsProc,pr:0,bonus:p.carry.bonus||0,recipe:p.carry.recipe,stepIdx:si+1});
-      p.carry=null;
-      if(nr.n==='FEEDBACK')fbFrozen=p;
-    }
-    // No recipe — legacy fallback (shouldn't happen often)
-    else if(!steps){
-      const inf=ITEMS[p.carry.t];
-      if((nr.n==='FEEDBACK')&&p.carry.t!=='DONE'&&nr.items.length<(nr.maxQ||99)){nr.items.push({t:p.carry.t,p:true,pr:0,bonus:p.carry.bonus||0});p.carry=null;fbFrozen=p;}
-      else if(inf.st===nr.n){nr.items.push({t:p.carry.t,p:false,pr:0});p.carry=null;}
-      else{const exp=Object.keys(ITEMS).find(k=>ITEMS[k].st===nr.n);if(exp&&inf.next===exp){nr.items.push({t:p.carry.t,p:true,pr:0});p.carry=null;if(nr.n==='FEEDBACK')fbFrozen=p;}}
-    }
-  } else {
-    // Pickup
+    // Pickup from any station that holds items the player can carry
     if(nr.items.length>0){
-      let pi=nr.items.findIndex(i=>!i.p&&i.rdy);
-      if(pi===-1)pi=nr.items.findIndex(i=>!i.p);
-      if(pi>=0){
-        const it=nr.items.splice(pi,1)[0];
-        const pickType=it.rdy?it.rt:it.t;
-        if(nr.n==='INBOX'&&!it.recipe){
-          // Assign a recipe from active orders (prefer highest points)
-          let bestOrder=null,bestPts=-1;
-          for(const o of orders){const r=RECIPES[o.recipe];if(r.points>bestPts){bestPts=r.points;bestOrder=o;}}
-          p.carry={t:pickType,bonus:it.bonus||0,recipe:bestOrder?bestOrder.recipe:null,stepIdx:0};
-        } else {
-          // Carry forward recipe/stepIdx from station item
-          p.carry={t:pickType,bonus:it.bonus||0,recipe:it.recipe||null,stepIdx:it.stepIdx||0};
-        }
+      // Prefer ready (non-processing) items; for PASSTHROUGH prefer completable ones
+      let idx=-1;
+      if(nr.n==='PASSTHROUGH'){
+        idx=nr.items.findIndex(i=>{
+          if(i.t==='DONE')return true;
+          if(i.t==='TMPL'&&i.recipe){
+            const rc=RECIPES[i.recipe];
+            return rc&&rc.requires.every(ing=>(i.contents||[]).includes(ing));
+          }
+          return false;
+        });
+        if(idx<0)idx=0;
+      }else{
+        idx=nr.items.findIndex(i=>!i.p);
+      }
+      if(idx>=0){
+        const it=nr.items.splice(idx,1)[0];
+        p.carry=carryFromItem(it);
+        if(nr.n==='FEEDBACK')fbFrozen=null;
       }
     }
+    return;
+  }
+
+  // ============ DROP / INTERACT (with carry) ============
+  const carry=p.carry;
+
+  // TRASH: discard, -1 point
+  if(nr.n==='TRASH'){
+    score=Math.max(0,score-1);
+    staFloats.push({gx:nr.gx,gy:nr.gy,text:'🗑️ -1',color:'#f44',life:1.2,ml:1.2});
+    nr.flash='#f44';nr.flashT=.4;
+    p.carry=null;return;
+  }
+
+  // PASSTHROUGH: drop on counter (with all contents)
+  if(nr.n==='PASSTHROUGH'){
+    if(nr.items.length<(nr.maxQ||99)){
+      nr.items.push({t:carry.t,contents:carry.contents?[...carry.contents]:[],recipe:carry.recipe,bonus:carry.bonus||0,p:false});
+      p.carry=null;
+    }
+    return;
+  }
+
+  // DELIVERY: only DONE accepted
+  if(nr.n==='DELIVERY'){
+    if(carry.t==='DONE'){
+      const rc=carry.recipe?RECIPES[carry.recipe]:null;
+      const pts=rc?Math.max(0,rc.points+(carry.bonus||0)):1;
+      score+=pts;deliveries++;spawnCel(nr.gx,nr.gy);
+      staFloats.push({gx:nr.gx,gy:nr.gy,text:'+'+pts,color:'#4f4',life:1.2,ml:1.2});
+      if(carry.recipe){const oi=orders.findIndex(o=>o.recipe===carry.recipe);if(oi>=0)orders.splice(oi,1);}
+      p.carry=null;
+    }else{
+      staFloats.push({gx:nr.gx,gy:nr.gy,text:'❌ Not ready',color:'#f44',life:1,ml:1});
+      nr.flash='#f44';nr.flashT=.4;
+    }
+    return;
+  }
+
+  // After this point, only TMPL is meaningful
+  if(carry.t!=='TMPL'){
+    staFloats.push({gx:nr.gx,gy:nr.gy,text:'❌ Wrong station',color:'#f44',life:1,ml:1});
+    return;
+  }
+
+  // TEMPLATES: already have one
+  if(nr.n==='TEMPLATES')return;
+
+  // INBOX: stack RQ onto TMPL
+  if(nr.n==='INBOX'){
+    if(carry.contents.includes('RQ')){
+      staFloats.push({gx:nr.gx,gy:nr.gy,text:'Already has RQ',color:'#f44',life:1,ml:1});return;
+    }
+    if(nr.items.length===0){
+      staFloats.push({gx:nr.gx,gy:nr.gy,text:'No RQs available',color:'#f44',life:1,ml:1});return;
+    }
+    nr.items.pop();
+    carry.contents.push('RQ');
+    if(!carry.recipe){carry.recipe=assignRecipeForRQ();}
+    staFloats.push({gx:nr.gx,gy:nr.gy,text:'+❓',color:'#88bbff',life:.8,ml:.8});
+    return;
+  }
+
+  // ANALYSIS: cook DATA onto TMPL (with overload + lockout)
+  if(nr.n==='ANALYSIS'){
+    if(nr.lockout>0){
+      staFloats.push({gx:nr.gx,gy:nr.gy,text:'🔒 Locked',color:'#f44',life:1,ml:1});return;
+    }
+    if(nr.items.length>=2){
+      // Dropping the 3rd one triggers overload
+      nr.items=[];nr.lockout=ANALYSIS_OVERLOAD_LOCKOUT;
+      nr.flash='#f44';nr.flashT=.6;
+      staFloats.push({gx:nr.gx,gy:nr.gy,text:'🤯 Analysis Paralysis!',color:'#f44',life:2,ml:2});
+      score=Math.max(0,score-1);
+      p.carry=null;return;
+    }
+    if(!carry.contents.includes('RQ')){
+      staFloats.push({gx:nr.gx,gy:nr.gy,text:'❌ Needs RQ first',color:'#f44',life:1,ml:1});return;
+    }
+    if(carry.contents.includes('DATA')){
+      staFloats.push({gx:nr.gx,gy:nr.gy,text:'Already analyzed',color:'#f44',life:1,ml:1});return;
+    }
+    nr.items.push({t:'TMPL',contents:[...carry.contents],recipe:carry.recipe,bonus:carry.bonus||0,p:true,pr:0,burnTimer:0});
+    p.carry=null;return;
+  }
+
+  // SYNTHESIS: stack LIT onto TMPL (Level 2+ only)
+  if(nr.n==='SYNTHESIS'){
+    if(!LEVELS[currentLevel].synthesisActive){
+      staFloats.push({gx:nr.gx,gy:nr.gy,text:'🔒 Level 2',color:'#888',life:1,ml:1});return;
+    }
+    if(carry.contents.includes('LIT')){
+      staFloats.push({gx:nr.gx,gy:nr.gy,text:'Already has LIT',color:'#f44',life:1,ml:1});return;
+    }
+    nr.items.push({t:'TMPL',contents:[...carry.contents],recipe:carry.recipe,bonus:carry.bonus||0,p:true,pr:0});
+    p.carry=null;return;
+  }
+
+  // DECK BUILDER: validate contents match recipe, then process into DONE
+  if(nr.n==='DECK BUILDER'){
+    if(!carry.recipe){
+      staFloats.push({gx:nr.gx,gy:nr.gy,text:'❌ No recipe',color:'#f44',life:1,ml:1});return;
+    }
+    const rc=RECIPES[carry.recipe];
+    const hasAll=rc.requires.every(ing=>carry.contents.includes(ing));
+    if(!hasAll){
+      const missing=rc.requires.filter(ing=>!carry.contents.includes(ing));
+      staFloats.push({gx:nr.gx,gy:nr.gy,text:'❌ Missing '+missing.map(m=>ITEMS[m].sym).join(''),color:'#f44',life:1.2,ml:1.2});
+      nr.flash='#f44';nr.flashT=.4;return;
+    }
+    nr.items.push({t:'TMPL',contents:[...carry.contents],recipe:carry.recipe,bonus:carry.bonus||0,p:true,pr:0});
+    p.carry=null;return;
+  }
+
+  // FEEDBACK: review (existing behavior — adds +1 bonus, freezes player)
+  if(nr.n==='FEEDBACK'){
+    if(nr.items.length<(nr.maxQ||1)){
+      nr.items.push({t:'TMPL',contents:[...carry.contents],recipe:carry.recipe,bonus:carry.bonus||0,p:true,pr:0});
+      p.carry=null;fbFrozen=p;
+    }
+    return;
+  }
+
+  // COPILOT: ±1 bonus
+  if(nr.n==='COPILOT'){
+    if(nr.items.length<(nr.maxQ||1)){
+      nr.items.push({t:'TMPL',contents:[...carry.contents],recipe:carry.recipe,bonus:carry.bonus||0,p:true,pr:0});
+      p.carry=null;
+    }
+    return;
   }
 }
 
@@ -557,17 +796,19 @@ function updPl(p,up,dn,lt,rt,act){
 
 // State serialization for network
 function getState(){
-  return{p1:{gx:p1.gx,gy:p1.gy,vx:p1.vx,vy:p1.vy,dir:p1.dir,fr:p1.fr,mv:p1.mv,carry:p1.carry},
+  return{
+    p1:{gx:p1.gx,gy:p1.gy,vx:p1.vx,vy:p1.vy,dir:p1.dir,fr:p1.fr,mv:p1.mv,carry:p1.carry},
     p2:{gx:p2.gx,gy:p2.gy,vx:p2.vx,vy:p2.vy,dir:p2.dir,fr:p2.fr,mv:p2.mv,carry:p2.carry},
-    sta:STA.map(s=>({items:s.items})),score,particles:particles.length}
+    sta:STA.map(s=>({items:s.items,lockout:s.lockout||0})),
+    score,deliveries,
+    gamePhase,roundTimer,countdownTimer,currentLevel,
+    orders,
+  };
 }
 function applyState(d){
   if(!d)return;
-  // Lerp factor: blend server state with local prediction to avoid snapping
   const L=0.4;
-  // P1 is always server-authoritative (host controls P1)
   Object.assign(p1,d.p1);
-  // P2: blend position if guest is predicting locally
   if(role==='guest'){
     p2.gx+=(d.p2.gx-p2.gx)*L;
     p2.gy+=(d.p2.gy-p2.gy)*L;
@@ -577,7 +818,18 @@ function applyState(d){
     Object.assign(p2,d.p2);
   }
   score=d.score;
-  d.sta.forEach((sd,i)=>{STA[i].items=sd.items});
+  if(d.deliveries!==undefined)deliveries=d.deliveries;
+  if(d.gamePhase!==undefined){
+    const prevPhase=gamePhase;
+    gamePhase=d.gamePhase;
+    if(prevPhase!=='gameover'&&gamePhase==='gameover')showGameOverOverlay();
+    if(prevPhase==='gameover'&&gamePhase!=='gameover')hideGameOverOverlay();
+  }
+  if(d.roundTimer!==undefined)roundTimer=d.roundTimer;
+  if(d.countdownTimer!==undefined)countdownTimer=d.countdownTimer;
+  if(d.currentLevel!==undefined)currentLevel=d.currentLevel;
+  if(d.orders!==undefined)orders=d.orders;
+  d.sta.forEach((sd,i)=>{STA[i].items=sd.items;if(sd.lockout!==undefined)STA[i].lockout=sd.lockout;});
 }
 
 function clampBarrier(){
@@ -585,34 +837,146 @@ function clampBarrier(){
   if(p2.gx<BARRIER_COL){p2.gx=BARRIER_COL;p2.vx=-p2.vx*BNC;}
 }
 
+function carryDisplayText(c){
+  if(!c)return '—';
+  if(c.t==='DONE')return '✅ Deck';
+  if(c.t==='TMPL'){
+    if(!c.contents||c.contents.length===0)return '📋 empty';
+    return '📋'+c.contents.map(k=>ITEMS[k]?ITEMS[k].sym:k).join('');
+  }
+  return c.t;
+}
+
+function updateHUD(){
+  document.getElementById('lvl').textContent=currentLevel;
+  document.getElementById('score').textContent=score;
+  const t=Math.max(0,Math.ceil(roundTimer));
+  const mm=Math.floor(t/60),ss=t%60;
+  const tEl=document.getElementById('timer');
+  tEl.textContent=mm+':'+ss.toString().padStart(2,'0');
+  if(roundTimer<=30&&gamePhase==='playing')tEl.classList.add('danger');else tEl.classList.remove('danger');
+  document.getElementById('p1c').textContent=carryDisplayText(p1.carry);
+  document.getElementById('p2c').textContent=(botActive?'🤖 ':'')+carryDisplayText(p2.carry);
+}
+
 let frameCount = 0;
 function update(){
-  spT+=.016;const ib=fSta('INBOX');if(spT>=SPI&&ib.items.length<3){ib.items.push({t:'RAW',p:false,pr:0});spT=0}
-  // Order spawning
+  // ============ PHASE: COUNTDOWN ============
+  if(gamePhase==='countdown'){
+    countdownTimer-=.016;
+    if(countdownTimer<=-1){
+      gamePhase='playing';
+      // Eat any buffered key presses so GO doesn't trigger an immediate action
+      for(const k in jp)delete jp[k];
+    }
+    for(const k in jp)delete jp[k];
+    if(role==='host')sendState(getState());
+    updateHUD();
+    return;
+  }
+
+  // ============ PHASE: GAME OVER ============
+  if(gamePhase==='gameover'){
+    for(const k in jp)delete jp[k];
+    if(role==='host')sendState(getState());
+    updateHUD();
+    return;
+  }
+
+  // ============ PHASE: PLAYING ============
+  // Round timer
+  roundTimer-=.016;
+  if(roundTimer<=0){
+    roundTimer=0;
+    gamePhase='gameover';
+    showGameOverOverlay();
+    if(role==='host')sendState(getState());
+    updateHUD();
+    return;
+  }
+
+  // RQ spawning at INBOX
+  spT+=.016;
+  const ib=fSta('INBOX');
+  if(spT>=RQ_SPAWN_INTERVAL&&ib.items.length<RQ_MAX_QUEUE){
+    ib.items.push({t:'RQ',p:false});spT=0;
+  }
+  // TMPL spawning at TEMPLATES
+  tmplT+=.016;
+  const tm=fSta('TEMPLATES');
+  if(tmplT>=TMPL_SPAWN_INTERVAL&&tm.items.length<TMPL_MAX_QUEUE){
+    tm.items.push({t:'TMPL'});tmplT=0;
+  }
+
+  // Order spawning (only from this level's pool)
   orderTimer+=.016;
-  if(orders.length===0&&orderTimer<ORDER_INTERVAL){const rk=Object.keys(RECIPES);orders.push({id:Date.now(),recipe:rk[Math.floor(Math.random()*rk.length)],timeLimit:60,elapsed:0});orderTimer=0;}
-  if(orderTimer>=ORDER_INTERVAL&&orders.length<MAX_ORDERS){const rk=Object.keys(RECIPES);orders.push({id:Date.now(),recipe:rk[Math.floor(Math.random()*rk.length)],timeLimit:60,elapsed:0});orderTimer=0;}
+  const orderPool=LEVELS[currentLevel].orders;
+  if((orders.length===0||orderTimer>=ORDER_INTERVAL)&&orders.length<MAX_ORDERS){
+    const recipe=orderPool[Math.floor(Math.random()*orderPool.length)];
+    orders.push({id:Date.now()+Math.random(),recipe,timeLimit:60,elapsed:0});
+    orderTimer=0;
+  }
   // Order timers and expiry
-  for(let i=orders.length-1;i>=0;i--){orders[i].elapsed+=.016;if(orders[i].elapsed>=orders[i].timeLimit){const ci=i;orderFlashes.push({idx:ci,life:.3,ml:.3});orders.splice(i,1);}}
+  for(let i=orders.length-1;i>=0;i--){
+    orders[i].elapsed+=.016;
+    if(orders[i].elapsed>=orders[i].timeLimit){
+      orderFlashes.push({idx:i,life:.3,ml:.3});
+      orders.splice(i,1);
+    }
+  }
   for(let i=orderFlashes.length-1;i>=0;i--){orderFlashes[i].life-=.016;if(orderFlashes[i].life<=0)orderFlashes.splice(i,1);}
-  for(const s of STA)for(const it of s.items){if(it.p){if(s.pt<=0){const nt=ITEMS[it.t].next;if(nt){it.p=false;it.rdy=true;it.rt=nt;it.t=nt}}else{it.pr+=.016;if(it.pr>=s.pt){const nt=ITEMS[it.t].next;if(nt){it.p=false;it.rdy=true;it.rt=nt;it.t=nt;
-    // FEEDBACK: always +1, unfreeze player
-    if(s.n==='FEEDBACK'){it.bonus=1;staFloats.push({gx:s.gx,gy:s.gy,text:'⬆️+1',color:'#4f4',life:1,ml:1});fbFrozen=null;}
-    // COPILOT: 50/50
-    if(s.n==='COPILOT'){if(Math.random()<.5){it.bonus=1;s.flash='#4f4';s.flashT=.5;staFloats.push({gx:s.gx,gy:s.gy,text:'⬆️+1',color:'#4f4',life:1,ml:1})}else{it.bonus=-1;s.flash='#f44';s.flashT=.5;staFloats.push({gx:s.gx,gy:s.gy,text:'⬇️-1',color:'#f44',life:1,ml:1})}}
-  }}}}}
+
+  // Station processing + burn + lockout
+  for(const s of STA){
+    if(s.n==='ANALYSIS'&&s.lockout>0){s.lockout-=.016;if(s.lockout<0)s.lockout=0;}
+    for(const it of s.items){
+      if(it.p){
+        // Processing
+        it.pr+=.016;
+        if(it.pr>=s.pt){
+          it.p=false;it.pr=0;
+          if(s.n==='ANALYSIS'){
+            if(it.contents&&!it.contents.includes('DATA'))it.contents.push('DATA');
+            it.burnTimer=0;
+          }else if(s.n==='SYNTHESIS'){
+            if(it.contents&&!it.contents.includes('LIT'))it.contents.push('LIT');
+          }else if(s.n==='DECK BUILDER'){
+            it.t='DONE';
+          }else if(s.n==='FEEDBACK'){
+            it.bonus=(it.bonus||0)+1;
+            staFloats.push({gx:s.gx,gy:s.gy,text:'⬆️+1',color:'#4f4',life:1,ml:1});
+            fbFrozen=null;
+          }else if(s.n==='COPILOT'){
+            const up=Math.random()<.5;
+            it.bonus=(it.bonus||0)+(up?1:-1);
+            s.flash=up?'#4f4':'#f44';s.flashT=.5;
+            staFloats.push({gx:s.gx,gy:s.gy,text:up?'⬆️+1':'⬇️-1',color:up?'#4f4':'#f44',life:1,ml:1});
+          }
+        }
+      }else{
+        // Idle at station — burn check at ANALYSIS
+        if(s.n==='ANALYSIS'&&it.contents&&it.contents.includes('DATA')){
+          it.burnTimer=(it.burnTimer||0)+.016;
+          if(it.burnTimer>=ANALYSIS_BURN_TIME){
+            const di=it.contents.indexOf('DATA');
+            if(di>=0)it.contents.splice(di,1);
+            it.burnTimer=0;
+            s.flash='#f44';s.flashT=.5;
+            staFloats.push({gx:s.gx,gy:s.gy,text:'📉 Data stale!',color:'#f44',life:1.5,ml:1.5});
+          }
+        }
+      }
+    }
+  }
 
   if(role==='host'){
-    // Host controls P1 locally, reads guest input for P2
     if(fbFrozen!==p1)updPl(p1,keys['w'],keys['s'],keys['a'],keys['d'],!!jp[' ']);
     if(fbFrozen!==p2)updPl(p2,guestInput.up,guestInput.down,guestInput.left,guestInput.right,guestInput.act);
-    guestInput.act=false; // consume the action
+    guestInput.act=false;
     clampBarrier();
-    // Send state every 2 frames (~30fps updates)
     frameCount++;
     sendState(getState());
   } else if(role==='guest'){
-    // Guest-side prediction: run local physics so movement feels instant
     updPl(p2,keys['w']||keys['arrowup']||keys['i'],keys['s']||keys['arrowdown']||keys['k'],
       keys['a']||keys['arrowleft']||keys['j'],keys['d']||keys['arrowright']||keys['l'],
       !!jp[' ']||!!jp['enter']);
@@ -621,17 +985,13 @@ function update(){
       left:keys['a']||keys['arrowleft']||keys['j'],right:keys['d']||keys['arrowright']||keys['l'],
       act:!!jp[' ']||!!jp['enter']});
   } else {
-    // Local mode (solo testing)
     if(fbFrozen!==p1)updPl(p1,keys['w'],keys['s'],keys['a'],keys['d'],!!jp[' ']);
     if(fbFrozen!==p2){
-      if (botActive) {
-        // Bot controls P2 via guestInput
+      if(botActive){
         updPl(p2,guestInput.up,guestInput.down,guestInput.left,guestInput.right,guestInput.act);
-        guestInput.act = false; // consume act
-        // Cap bot speed
+        guestInput.act=false;
         const bs=Math.sqrt(p2.vx**2+p2.vy**2);if(bs>MSPD*BOT_SPEED){p2.vx*=MSPD*BOT_SPEED/bs;p2.vy*=MSPD*BOT_SPEED/bs;}
-      } else {
-        // Manual P2 on keyboard
+      }else{
         updPl(p2,keys['i'],keys['k'],keys['j'],keys['l'],!!jp['enter']);
       }
     }
@@ -639,19 +999,14 @@ function update(){
   }
 
   for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.vy+=p.g*.016;p.x+=p.vx*.016;p.y+=p.vy*.016;p.life-=.016;if(p.life<=0)particles.splice(i,1)}
-  // Station flash decay
   for(const s of STA)if(s.flashT>0)s.flashT-=.016;
-  // Station floats decay
   for(let i=staFloats.length-1;i>=0;i--){staFloats[i].life-=.016;if(staFloats[i].life<=0)staFloats.splice(i,1)}
   for(const k in jp)delete jp[k];
-  document.getElementById('score').textContent=score;
-  document.getElementById('p1c').textContent=p1.carry?ITEMS[p1.carry.t].name:'—';
-  document.getElementById('p2c').textContent=(botActive?'🤖 ':'')+(p2.carry?ITEMS[p2.carry.t].name:'—');
+  updateHUD();
 }
 
 function render(){
   ctx.clearRect(0,0,CW,CH);ctx.fillStyle='#1a1a2e';ctx.fillRect(0,0,CW,CH);
-  // Floor texture tiled across the whole canvas (pattern cached at image load)
   if(floorPattern){ctx.fillStyle=floorPattern;ctx.fillRect(0,0,CW,CH);}
   for(let r=0;r<GR;r++)for(let c=0;c<GC;c++)dTile(c,r);
   // Order cards (top-left overlay)
@@ -659,18 +1014,16 @@ function render(){
   for(let i=0;i<orders.length;i++){
     const o=orders[i],r=RECIPES[o.recipe],cy=OY+i*(OH+OG);
     const pct=(o.timeLimit-o.elapsed)/o.timeLimit;
-    // Card bg
     ctx.save();ctx.fillStyle='#1a1a2eee';ctx.strokeStyle=r.color;ctx.lineWidth=2;
     ctx.beginPath();ctx.roundRect(OX,cy,OW,OH,8);ctx.fill();ctx.stroke();
-    // Emoji + name
     ctx.font='14px "Press Start 2P",monospace';ctx.textAlign='left';ctx.fillStyle=r.color;
     ctx.fillText(r.emoji+' '+r.name,OX+12,cy+28);
-    // Points
     ctx.font='bold 14px "Outfit",sans-serif';ctx.fillStyle='#bbb';
     ctx.fillText(r.points+' pts',OX+12,cy+50);
-    // Pipeline steps — own line with breathing room
-    ctx.font='bold 13px "Outfit",sans-serif';ctx.fillStyle='#999';
-    ctx.fillText(r.steps.join(' → '),OX+12,cy+72);
+    // Required ingredients row
+    ctx.font='bold 18px sans-serif';ctx.fillStyle='#fff';
+    const ingRow='📋 + '+r.requires.map(k=>ITEMS[k].sym).join(' + ');
+    ctx.fillText(ingRow,OX+12,cy+78);
     // Timer bar (right side, vertical)
     const bx=OX+OW-18,by_=cy+12,bw=10,bh=86;
     ctx.fillStyle='#333';ctx.fillRect(bx,by_,bw,bh);
@@ -678,32 +1031,126 @@ function render(){
     ctx.fillRect(bx,by_+bh*(1-pct),bw,bh*pct);
     ctx.restore();
   }
-  // Expiry flash
   for(const f of orderFlashes){const cy=OY+f.idx*(OH+OG);ctx.save();ctx.globalAlpha=f.life/f.ml*.6;ctx.fillStyle='#f44';ctx.beginPath();ctx.roundRect(OX,cy,OW,OH,8);ctx.fill();ctx.restore();}
-  const dr=[];for(const s of STA)dr.push({d:s.gx+s.gy,f:()=>dSta(s)});
+  const dr=[];
+  for(const s of STA){
+    if(s.n==='SYNTHESIS'&&!LEVELS[currentLevel].synthesisActive)continue;
+    dr.push({d:s.gx+s.gy,f:()=>dSta(s)});
+  }
   // Barrier wall segments (skip PASSTHROUGH row)
   for(let gy=0;gy<GR;gy++){if(gy===4||gy===7)continue;dr.push({d:BARRIER_COL+gy,f:()=>dBarrierSeg(gy)});}
   dr.push({d:p1.gx+p1.gy,f:()=>dPl(p1,s1,s1ok)});dr.push({d:p2.gx+p2.gy,f:()=>dPl(p2,s2,s2ok)});
   dr.sort((a,b)=>a.d-b.d);for(const d of dr)d.f();
-  for(const p of[p1,p2])for(const s of STA){const d=gd(p.gx,p.gy,s.gx+.5,s.gy+.5);if(d<IR){const{x,y}=g2s(s.gx,s.gy);ctx.save();ctx.font='8px "Press Start 2P",monospace';ctx.textAlign='center';ctx.fillStyle=p===p1?'#88bbff':'#ffbb88';ctx.globalAlpha=.6+.3*Math.sin(Date.now()/250);ctx.fillText(p===p1?'[SPACE]':'[ACT]',x+(p===p1?-15:15),y-32);ctx.restore();}}
+  for(const p of[p1,p2])for(const s of STA){
+    if(s.n==='SYNTHESIS'&&!LEVELS[currentLevel].synthesisActive)continue;
+    const d=gd(p.gx,p.gy,s.gx+.5,s.gy+.5);
+    if(d<IR){const{x,y}=g2s(s.gx,s.gy);ctx.save();ctx.font='8px "Press Start 2P",monospace';ctx.textAlign='center';ctx.fillStyle=p===p1?'#88bbff':'#ffbb88';ctx.globalAlpha=.6+.3*Math.sin(Date.now()/250);ctx.fillText(p===p1?'[SPACE]':'[ACT]',x+(p===p1?-15:15),y-32);ctx.restore();}
+  }
   for(const p of particles){ctx.save();ctx.globalAlpha=Math.max(0,p.life/p.ml);ctx.font=p.sz+'px sans-serif';ctx.textAlign='center';ctx.fillText(p.em,p.x,p.y);ctx.restore();}
   // Feedback speech bubble above frozen player
   if(fbFrozen){const{x:px,y:py}=g2s(fbFrozen.gx,fbFrozen.gy);const wobble=Math.sin(Date.now()/200)*3;const bubY=py-DH-10+wobble;ctx.save();ctx.fillStyle='#fff';ctx.beginPath();ctx.roundRect(px-24,bubY,48,20,8);ctx.fill();ctx.beginPath();ctx.moveTo(px-4,bubY+20);ctx.lineTo(px,bubY+26);ctx.lineTo(px+4,bubY+20);ctx.closePath();ctx.fill();ctx.font='bold 10px "Press Start 2P",monospace';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle=Math.sin(Date.now()/250)>0?'#e74c3c':'#e67e22';ctx.fillText('%*@#$!',px,bubY+10);ctx.restore();}
-  // Station floats (+1/-1)
   for(const f of staFloats){const{x:fx,y:fy}=g2s(f.gx,f.gy);const rise=(1-f.life/f.ml)*40;ctx.save();ctx.globalAlpha=Math.max(0,f.life/f.ml);ctx.font='bold 14px "Outfit",sans-serif';ctx.textAlign='center';ctx.fillStyle=f.color;ctx.fillText(f.text,fx,fy-40-rise);ctx.restore();}
-  // Network indicator
+  // Network / bot indicator
   ctx.save();ctx.font='9px Outfit,sans-serif';ctx.textAlign='right';ctx.fillStyle=connected?'#4a4':'#a44';ctx.fillText(connected?(role==='host'?'● HOST':'● GUEST'):'● LOCAL',CW-10,16);
   if(botActive){ctx.fillStyle='#f0c040';ctx.fillText('🤖 BOT ACTIVE',CW-10,30);}
   ctx.restore();
+  // ============ COUNTDOWN OVERLAY ============
+  if(gamePhase==='countdown'){
+    ctx.save();
+    ctx.fillStyle='rgba(0,0,0,0.6)';ctx.fillRect(0,0,CW,CH);
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    let txt,sub='';
+    if(countdownTimer>0){
+      txt=Math.ceil(countdownTimer).toString();
+      sub='Get ready, P1 + P2!';
+    }else{
+      txt='GO!';
+      sub='Make those decks!';
+    }
+    // Pulsing scale
+    const pulse=1+0.1*Math.sin(Date.now()/120);
+    ctx.font='bold '+Math.round(140*pulse)+'px "Press Start 2P",monospace';
+    ctx.fillStyle='#f0c040';
+    ctx.shadowColor='#000';ctx.shadowBlur=20;
+    ctx.fillText(txt,CW/2,CH/2);
+    ctx.shadowBlur=0;
+    ctx.font='16px "Press Start 2P",monospace';
+    ctx.fillStyle='#fff';
+    ctx.fillText(sub,CW/2,CH/2+90);
+    ctx.restore();
+  }
+}
+
+function resetGame(){
+  score=0;deliveries=0;
+  roundTimer=ROUND_LENGTH;
+  countdownTimer=3.0;
+  gamePhase='countdown';
+  orders=[];orderTimer=0;orderFlashes.length=0;
+  for(const s of STA){s.items=[];s.lockout=0;s.flash=null;s.flashT=0;}
+  // Preload starting items so first GO isn't dead
+  const tm=fSta('TEMPLATES');if(tm){tm.items.push({t:'TMPL'});tm.items.push({t:'TMPL'});}
+  const ib=fSta('INBOX');if(ib){ib.items.push({t:'RQ',p:false});}
+  // Reset players
+  p1.gx=3;p1.gy=5;p1.vx=0;p1.vy=0;p1.carry=null;p1.fr=0;p1.dir=DIR.DL;
+  p2.gx=8;p2.gy=5;p2.vx=0;p2.vy=0;p2.carry=null;p2.fr=0;p2.dir=DIR.DL;
+  spT=0;tmplT=0;fbFrozen=null;
+  particles.length=0;staFloats.length=0;
+  hideGameOverOverlay();
+  updateHUD();
+}
+
+function showGameOverOverlay(){
+  const overlay=document.getElementById('game-over-overlay');
+  if(!overlay)return;
+  document.getElementById('go-score').textContent='Score: '+score;
+  document.getElementById('go-deliveries').textContent='Deliveries: '+deliveries;
+  const thresholds=LEVELS[currentLevel].starThresholds;
+  let stars=0;
+  if(deliveries>=thresholds[3])stars=3;
+  else if(deliveries>=thresholds[2])stars=2;
+  else if(deliveries>=thresholds[1])stars=1;
+  document.getElementById('go-stars').textContent=stars>0?'⭐'.repeat(stars):'💀';
+  let rank;
+  if(stars===3)rank='Insight Master!';
+  else if(stars===2)rank='Solid kitchen.';
+  else if(stars===1)rank='Made it through.';
+  else rank='Try again — your decks need work!';
+  document.getElementById('go-rank').textContent=rank;
+  overlay.classList.add('show');
+}
+
+function hideGameOverOverlay(){
+  const overlay=document.getElementById('game-over-overlay');
+  if(overlay)overlay.classList.remove('show');
 }
 
 function startGame(){
   document.getElementById('lobby').style.display='none';
   document.getElementById('game-wrap').style.display='flex';
-  gameLoop();
+  // Guests don't reset state — they receive it from host
+  if(role!=='guest')resetGame();
+  if(!gameLoopRunning){gameLoopRunning=true;gameLoop();}
 }
 
+let gameLoopRunning=false;
 function gameLoop(){update();render();requestAnimationFrame(gameLoop)}
+
+// Game-over overlay buttons
+document.addEventListener('DOMContentLoaded',()=>{
+  const playAgain=document.getElementById('go-play-again');
+  if(playAgain)playAgain.onclick=()=>{
+    if(role==='guest')return; // only host/local can restart
+    resetGame();
+  };
+  const lobbyBtn=document.getElementById('go-lobby');
+  if(lobbyBtn)lobbyBtn.onclick=()=>{
+    hideGameOverOverlay();
+    document.getElementById('game-wrap').style.display='none';
+    document.getElementById('lobby').style.display='block';
+    stopBot();
+  };
+});
 
 // Allow local play without server (click anywhere on canvas)
 document.getElementById('game-container').addEventListener('dblclick', () => {
@@ -735,114 +1182,111 @@ function stopBot() {
 
 function botThink() {
   if (!botActive) return;
-  // Decrease act cooldown
-  if (botActCooldown > 0) botActCooldown -= 50;
-
   // Reset inputs each tick
-  guestInput.up = false;
-  guestInput.down = false;
-  guestInput.left = false;
-  guestInput.right = false;
-  guestInput.act = false;
+  guestInput = { up:false, down:false, left:false, right:false, act:false };
+  // Don't act during countdown / game over
+  if (gamePhase !== 'playing') return;
+  if (botActCooldown > 0) botActCooldown -= 50;
+  if (botPTCooldown > 0) botPTCooldown -= 50;
 
   const prevState = botState;
-
-  // Bot-accessible stations (employee side + passthrough)
-  const BOT_STATIONS = ['DECK BUILDER', 'DELIVERY', 'COPILOT', 'PASSTHROUGH', 'TRASH'];
-  const OWNER_STATIONS = ['INBOX', 'ANALYSIS', 'FEEDBACK'];
+  // Bot-accessible stations (employee side + passthrough/trash)
+  const BOT_STATIONS = ['DECK BUILDER', 'DELIVERY', 'COPILOT', 'PASSTHROUGH', 'TRASH', 'SYNTHESIS'];
 
   if (p2.carry) {
-    // Check if carrying an item for an expired order — trash it
-    if (p2.carry.recipe && !orders.some(o => o.recipe === p2.carry.recipe)) {
-      botState = 'TRASH';
-      const trash = fSta('TRASH');
-      botNavigate(trash.gx + 0.5, trash.gy + 0.5);
-      if (prevState !== botState) console.log(`[BOT] ${prevState} → TRASH (order expired)`);
-      return;
-    }
-
-    // DELIVER: route by recipe steps
-    botState = 'DELIVER';
-    let targetStation = null;
-    const rc = p2.carry.recipe ? RECIPES[p2.carry.recipe] : null;
-    const steps = rc ? rc.steps : null;
-    const si = p2.carry.stepIdx || 0;
-
-    if (steps && si + 1 < steps.length) {
-      const nextStep = steps[si + 1];
-      targetStation = fSta(nextStep);
-    } else if (steps) {
-      targetStation = fSta('DELIVERY');
+    // === CARRYING ===
+    // DONE deck → deliver
+    if (p2.carry.t === 'DONE') {
+      botState = 'DELIVER';
+      const del = fSta('DELIVERY');
+      botNavigate(del.gx + 0.5, del.gy + 0.5);
+    } else if (p2.carry.t === 'TMPL') {
+      const rc = p2.carry.recipe ? RECIPES[p2.carry.recipe] : null;
+      // No recipe (got an empty TMPL somehow) — drop at PT for P1 to load
+      if (!rc) {
+        botState = 'HANDOFF';
+        const pt = fSta('PASSTHROUGH');
+        botNavigate(pt.gx + 0.5, pt.gy + 0.5);
+        if (gd(p2.gx, p2.gy, pt.gx + 0.5, pt.gy + 0.5) < 1) botPTCooldown = 3000;
+      }
+      // Recipe expired or removed — trash
+      else if (!orders.some(o => o.recipe === p2.carry.recipe)) {
+        botState = 'TRASH';
+        const tr = fSta('TRASH');
+        botNavigate(tr.gx + 0.5, tr.gy + 0.5);
+      } else {
+        const hasAll = rc.requires.every(ing => p2.carry.contents.includes(ing));
+        if (hasAll) {
+          // Take to DECK BUILDER to finalize
+          botState = 'BUILD';
+          const db = fSta('DECK BUILDER');
+          botNavigate(db.gx + 0.5, db.gy + 0.5);
+        } else {
+          // Missing ingredients that are owner-side (RQ at INBOX, DATA at ANALYSIS)
+          // Send back via PASSTHROUGH
+          botState = 'HANDOFF';
+          const pt = fSta('PASSTHROUGH');
+          botNavigate(pt.gx + 0.5, pt.gy + 0.5);
+          if (gd(p2.gx, p2.gy, pt.gx + 0.5, pt.gy + 0.5) < 1) botPTCooldown = 3000;
+        }
+      }
     } else {
-      const info = ITEMS[p2.carry.t];
-      if (p2.carry.t === 'DONE') targetStation = fSta('DELIVERY');
-      else if (info && info.next) { const ni = ITEMS[info.next]; if (ni) targetStation = fSta(ni.st); }
-    }
-
-    // If target is owner-side, redirect to PASSTHROUGH for handoff
-    if (targetStation && OWNER_STATIONS.includes(targetStation.n)) {
-      targetStation = fSta('PASSTHROUGH');
-      botPTCooldown = 3000; // don't re-grab from PASSTHROUGH for 3s after dropping
-    }
-
-    if (targetStation) {
-      botNavigate(targetStation.gx + 0.5, targetStation.gy + 0.5);
+      // Unknown carry → trash
+      botState = 'TRASH';
+      const tr = fSta('TRASH');
+      botNavigate(tr.gx + 0.5, tr.gy + 0.5);
     }
   } else {
-    // FETCH: find a ready item to pick up from employee-side stations
-    let bestStation = null;
+    // === NO CARRY: find something to grab ===
+    let target = null;
     let bestScore = -Infinity;
-
-    // Tick down PASSTHROUGH cooldown
-    if (botPTCooldown > 0) botPTCooldown -= 50;
 
     for (const s of STA) {
       if (!BOT_STATIONS.includes(s.n)) continue;
+      if (s.n === 'TRASH' || s.n === 'DELIVERY') continue;
+      // Pickable items: ready (not processing) — for PT, only completable
       let pickable;
       if (s.n === 'PASSTHROUGH') {
-        // Skip if we just dropped something back here (prevent pickup loop)
-        if (botPTCooldown > 0) { continue; }
-        pickable = s.items.filter(i => !i.p);
+        if (botPTCooldown > 0) continue;
+        pickable = s.items.filter(i => {
+          if (i.t === 'DONE') return true;
+          if (i.t === 'TMPL' && i.recipe) {
+            const rc = RECIPES[i.recipe];
+            return rc && rc.requires.every(ing => (i.contents || []).includes(ing));
+          }
+          return false;
+        });
       } else {
-        pickable = s.items.filter(i => !i.p && i.rdy);
+        pickable = s.items.filter(i => !i.p);
       }
       if (pickable.length === 0) continue;
 
       let sc = 10;
-      const sample = pickable[0];
-      if (sample.rdy) sc += 20;
-      if (s.n === 'PASSTHROUGH') {
-        // Check if any items have employee-accessible next steps
-        const deliverable = pickable.filter(i => {
-          const rc = i.recipe ? RECIPES[i.recipe] : null;
-          const steps = rc ? rc.steps : null;
-          const si = i.stepIdx || 0;
-          const nextStep = steps ? steps[si + 1] : null;
-          return !nextStep || !OWNER_STATIONS.includes(nextStep);
-        });
-        if (deliverable.length > 0) sc += 30; // high priority: bot can deliver these
-        else sc -= 50; // low priority: these need owner processing first
-      }
+      // Strong preference for DONE items at DECK BUILDER (just deliver them)
+      if (s.n === 'DECK BUILDER') sc += 50;
+      // PT pickups are good — finished work coming from P1
+      if (s.n === 'PASSTHROUGH') sc += 30;
+      // COPILOT items are bonused TMPLs
+      if (s.n === 'COPILOT') sc += 20;
       const dist = gd(p2.gx, p2.gy, s.gx + 0.5, s.gy + 0.5);
       sc -= dist * 2;
-
-      if (sc > bestScore) { bestScore = sc; bestStation = s; }
+      if (sc > bestScore) { bestScore = sc; target = s; }
     }
 
-    if (bestStation) {
+    if (target) {
       botState = 'FETCH';
-      botNavigate(bestStation.gx + 0.5, bestStation.gy + 0.5);
+      botNavigate(target.gx + 0.5, target.gy + 0.5);
     } else {
-      // Idle near PASSTHROUGH waiting for items from owner
+      // Idle near PASSTHROUGH waiting for P1's handoffs
       botState = 'IDLE';
       const pt = fSta('PASSTHROUGH');
-      const idleDist = gd(p2.gx, p2.gy, pt.gx + 1.5, pt.gy + 0.5);
-      if (idleDist > 1.5) botNavigate(pt.gx + 1.5, pt.gy + 0.5);
+      const idleDist = gd(p2.gx, p2.gy, pt.gx + 1.4, pt.gy + 0.5);
+      if (idleDist > 1.5) botNavigate(pt.gx + 1.4, pt.gy + 0.5);
     }
   }
 
   if (prevState !== botState) {
-    console.log(`[BOT] ${prevState} → ${botState}` + (p2.carry ? ` (carrying ${p2.carry.t})` : ''));
+    console.log(`[BOT] ${prevState} → ${botState}` + (p2.carry ? ` (${p2.carry.t}${p2.carry.contents?'['+p2.carry.contents.join(',')+']':''})` : ''));
   }
 }
 
