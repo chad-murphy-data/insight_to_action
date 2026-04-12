@@ -255,6 +255,9 @@ const STATION_FILES={
   'COUNTER':'deck_builder_station_sprite','DELIVERY':'delivery_station_sprite',
   'TRASH':'trash_station_sprite',
   'COPILOT':'copilot_station_sprite','FEEDBACK':'feedback_station_sprite',
+  // DATA_COLLECTION reuses the analysis sprite for now — visually it reads
+  // as a "data" station with charts, perfect fit for the new stale mechanic.
+  'DATA_COLLECTION':'analysis_station_sprite',
 };
 const STATION_SPRITES={};
 for(const [k,f] of Object.entries(STATION_FILES)){
@@ -320,13 +323,15 @@ const RECIPES = {
 const LEVELS = {
   0: {
     name: 'Tutorial',
-    orders: ['QUICK_STAT'],
-    activeStations: ['TEMPLATES','INTAKE','COUNTER','DELIVERY','TRASH'],
+    // QUICK_STAT is the Phase 1/2 recipe (TMPL + RQ). FULL_READOUT is the
+    // Phase 3 recipe (TMPL + RQ + DATA) — teaches the stale mechanic.
+    orders: ['QUICK_STAT', 'FULL_READOUT'],
+    activeStations: ['TEMPLATES','INTAKE','COUNTER','DELIVERY','TRASH','DATA_COLLECTION'],
     synthesisActive: false,
-    roundDuration: 90,
+    roundDuration: 180,
     starThresholds: { 1: 2, 2: 3, 3: 5 },
     maxOrders: 2,
-    orderTimeLimit: 45,
+    orderTimeLimit: 60,
     isTutorial: true,
   },
   // Level 1 and Level 2 are placeholder configs — they'll be fully rebuilt
@@ -409,8 +414,10 @@ const TUTORIAL_PROMPTS = {
   '2:2': { both: 'Drop your item on 🧩 counter' },
   '2:3': { both: 'Grab the deck and deliver!' },
   '2:4': { both: '🎉 Nice teamwork!' },
-  '3:1': { both: 'Phase 3 — Data Collection (soon)' },
-  '3:2': { both: '🏆 Tutorial complete!' },
+  '3:1': { both: 'Grab 📊 DATA — it goes stale!' },
+  '3:2': { both: 'Rush DATA + TMPL + RQ to 🧩 counter' },
+  '3:3': { both: 'Deliver the full readout!' },
+  '3:4': { both: '🏆 Tutorial complete!' },
 };
 function startTutorial(){
   tutorial.active=true;
@@ -442,7 +449,8 @@ function advanceTutorial(){
   const counter=fSta('COUNTER');
   tutorial.counterDropsAtStepStart=counter?counter.items.length:0;
   // Simple linear progression through the hard-coded step counts below.
-  const phaseSteps={1:8,2:4,3:2};
+  // Phase 3 has 4 steps now that Phase E added the DATA stale flow.
+  const phaseSteps={1:8,2:4,3:4};
   if(tutorial.step<phaseSteps[tutorial.phase]){
     tutorial.step++;
   }else if(tutorial.phase<3){
@@ -526,9 +534,26 @@ function tutorialStepCheck(){
     }
   }
   if(ph===3){
-    // Placeholder phase until Phase E lands DATA COLLECTION
-    if(st===1)return tutorial.stepStart>2.5;
-    if(st===2)return tutorial.stepStart>2;
+    if(st===1){
+      // Any player holding a DATA item
+      const p1Has=p1.carry&&p1.carry.t==='DATA';
+      const p2Has=p2.carry&&p2.carry.t==='DATA';
+      return solo?p1Has:(p1Has||p2Has);
+    }
+    if(st===2){
+      // TMPL + RQ + DATA all dropped on counter this step. dropsThisStep
+      // tracks drop events so the fast auto-combine doesn't miss them.
+      return !!(tutorial.dropsThisStep.TMPL&&
+                tutorial.dropsThisStep.RQ&&
+                tutorial.dropsThisStep.DATA);
+    }
+    if(st===3){
+      // A delivery happened during this step
+      return deliveries>tutorial.deliveriesAtStepStart;
+    }
+    if(st===4){
+      return tutorial.stepStart>2.5;
+    }
   }
   return false;
 }
@@ -575,6 +600,12 @@ const STA=[
   // auto-combines them into a DONE deck when a full recipe is present.
   // No processing time, no player needs to stand nearby.
   {n:'COUNTER',gx:9,gy:7,c:'#e0c040',items:[],pt:0,maxQ:8},
+  // DATA_COLLECTION (Phase E): dispenses DATA items that go "stale" a few
+  // seconds after pickup. Players must rush fresh DATA to the COUNTER or
+  // DELIVERY before the timer expires, or it auto-trashes itself. Placed
+  // at (8,4) — same tile as dormant FEEDBACK, which doesn't render while
+  // it's gated out of every level's activeStations.
+  {n:'DATA_COLLECTION',gx:8,gy:4,c:'#40a0e0',items:[],pt:0,maxQ:3},
   // Gated / dormant stations (not in any level's activeStations right now).
   // Keep the definitions so sprites/positions are preserved for Phase F.
   {n:'ANALYSIS',gx:5,gy:2,c:'#40a0e0',items:[],pt:2.5,lockout:0},
@@ -582,7 +613,9 @@ const STA=[
   {n:'FEEDBACK',gx:8,gy:4,c:'#9b59b6',items:[],pt:3.0,maxQ:1},
   {n:'SYNTHESIS',gx:5,gy:7,c:'#f0c040',items:[],pt:1.2},
 ];
-const SICO={'TEMPLATES':'📋','INTAKE':'❓','ANALYSIS':'🔬','COUNTER':'🧩','DELIVERY':'📤','FEEDBACK':'👔','COPILOT':'🤖','TRASH':'🗑️','SYNTHESIS':'📚'};
+const SICO={'TEMPLATES':'📋','INTAKE':'❓','ANALYSIS':'🔬','COUNTER':'🧩','DELIVERY':'📤','FEEDBACK':'👔','COPILOT':'🤖','TRASH':'🗑️','SYNTHESIS':'📚','DATA_COLLECTION':'📊'};
+// Display names for station pills (shorter / prettier than raw keys).
+const STA_LABEL={'DATA_COLLECTION':'DATA'};
 function fSta(n){return STA.find(s=>s.n===n)}
 // Is this station active in the current level?
 function staActive(s){
@@ -592,9 +625,13 @@ function staActive(s){
 }
 
 // Game state and tuning constants
-let score=0,deliveries=0,spT=0,tmplT=0;
+let score=0,deliveries=0,spT=0,tmplT=0,dataT=0;
 const RQ_SPAWN_INTERVAL=5, RQ_MAX_QUEUE=3;
 const TMPL_SPAWN_INTERVAL=6, TMPL_MAX_QUEUE=6;
+const DATA_SPAWN_INTERVAL=4, DATA_MAX_QUEUE=3;
+// DATA stale timing: carry-seconds. Yellow warning at WARN, stale at STALE.
+// Stale DATA cannot combine on the counter and auto-spoils at DROP.
+const DATA_STALE_WARN=6, DATA_STALE_CUTOFF=10;
 const ANALYSIS_BURN_TIME=8, ANALYSIS_OVERLOAD_LOCKOUT=3;
 const IR=1.8;
 let gamePhase='countdown'; // 'countdown' | 'playing' | 'gameover'
@@ -804,8 +841,9 @@ function drawStaLabel(s,x,dT){
   ctx.font="16px 'Delicious Handrawn',cursive";
   ctx.textAlign='center';
   ctx.textBaseline='middle';
+  const label=STA_LABEL[s.n]||s.n;
   const padX=12,ph=26;
-  const pw=ctx.measureText(s.n).width+padX*2;
+  const pw=ctx.measureText(label).width+padX*2;
   const px=x-pw/2;
   const py=dT-42; // pill top — bottom stays at dT-16, same as old pill
   // Darker shadow color from the station's hex
@@ -820,7 +858,7 @@ function drawStaLabel(s,x,dT){
   ctx.beginPath();ctx.roundRect(px,py,pw,ph,8);ctx.fill();
   // White text, centered
   ctx.fillStyle='#fff';
-  ctx.fillText(s.n,x,py+ph/2+1);
+  ctx.fillText(label,x,py+ph/2+1);
   ctx.restore();
 }
 
@@ -933,9 +971,14 @@ function dPl(p,sp,ok){
   else{ctx.beginPath();ctx.arc(x,y+TH/2,16,0,Math.PI*2);ctx.fillStyle='#f0c040';ctx.fill();}
   if(p.carry){
     // Single-slot carry — one icon in a bubble above the player. DONE gets
-    // a green-glow treatment to make "ready to deliver" read at a glance.
+    // a green-glow treatment. DATA gets a stale-timing ring: blue while
+    // fresh, yellow after DATA_STALE_WARN, red (flashing) after cutoff.
     const bob=Math.sin(Date.now()/300)*2;
     const isDone=p.carry.t==='DONE';
+    const isData=p.carry.t==='DATA';
+    const staleT=isData?(p.carry.staleT||0):0;
+    const isStale=isData&&staleT>=DATA_STALE_CUTOFF;
+    const isWarn=isData&&staleT>=DATA_STALE_WARN&&!isStale;
     const sym=ITEMS[p.carry.t]?ITEMS[p.carry.t].sym:'?';
     const cx=x,cy=y-DH*0.55+bob;
     ctx.save();
@@ -943,6 +986,16 @@ function dPl(p,sp,ok){
       ctx.shadowColor='#4f4';ctx.shadowBlur=14;
       ctx.fillStyle='rgba(40,160,60,0.85)';
       ctx.strokeStyle='#7fff7f';ctx.lineWidth=2;
+    }else if(isStale){
+      // Red flashing bubble
+      const flash=.5+.5*Math.sin(Date.now()/120);
+      ctx.shadowColor='#f44';ctx.shadowBlur=14*flash;
+      ctx.fillStyle='rgba(180,40,40,0.85)';
+      ctx.strokeStyle='#ff6060';ctx.lineWidth=2;
+    }else if(isWarn){
+      ctx.shadowColor='#f0c040';ctx.shadowBlur=10;
+      ctx.fillStyle='rgba(120,90,20,0.85)';
+      ctx.strokeStyle='#f0c040';ctx.lineWidth=2;
     }else{
       ctx.fillStyle='rgba(0,0,0,0.55)';
       ctx.strokeStyle='#fff8';ctx.lineWidth=1;
@@ -956,6 +1009,19 @@ function dPl(p,sp,ok){
       ctx.font='bold 7px "Press Start 2P",monospace';
       ctx.fillStyle='#fff';
       ctx.fillText('READY',x,cy-22);
+    }else if(isData){
+      // Fresh arc indicator: full circle at 0, empties as stale approaches
+      const frac=Math.max(0,1-staleT/DATA_STALE_CUTOFF);
+      ctx.beginPath();
+      ctx.arc(cx,cy,17,-Math.PI/2,-Math.PI/2+frac*Math.PI*2);
+      ctx.strokeStyle=isStale?'#ff6060':(isWarn?'#f0c040':'#40a0e0');
+      ctx.lineWidth=2;
+      ctx.stroke();
+      if(isStale){
+        ctx.font='bold 7px "Press Start 2P",monospace';
+        ctx.fillStyle='#ff8080';
+        ctx.fillText('STALE',x,cy-22);
+      }
     }
     ctx.restore();
   }
@@ -1017,8 +1083,10 @@ function staPriority(s,p){
 function initStations(){
   const tm=fSta('TEMPLATES');
   const ib=fSta('INTAKE');
+  const dc=fSta('DATA_COLLECTION');
   if(tm)for(let i=0;i<3;i++)tm.items.push({t:'TMPL'});
   if(ib)for(let i=0;i<2;i++)ib.items.push({t:'RQ',p:false});
+  if(dc)for(let i=0;i<2;i++)dc.items.push({t:'DATA'});
 }
 
 // Single-slot interact (Phase C): a player carries exactly one item and
@@ -1058,6 +1126,19 @@ function interact(p){
         p.carry={t:'RQ',recipe:null,bonus:0};
       }else{
         staFloats.push({gx:nr.gx,gy:nr.gy,text:'(no RQs yet)',color:'#888',life:.8,ml:.8});
+      }
+      return;
+    }
+    if(nr.n==='DATA_COLLECTION'){
+      // DATA is the stale-sensitive ingredient. Carry starts fresh with
+      // staleT=0; each update frame adds dt. Counter drop/delivery check
+      // the staleness and either combine or auto-spoil.
+      if(nr.items.length>0){
+        nr.items.pop();
+        p.carry={t:'DATA',recipe:null,bonus:0,staleT:0};
+        staFloats.push({gx:nr.gx,gy:nr.gy,text:'📊 fresh!',color:'#40a0e0',life:.8,ml:.8});
+      }else{
+        staFloats.push({gx:nr.gx,gy:nr.gy,text:'(no data)',color:'#888',life:.8,ml:.8});
       }
       return;
     }
@@ -1108,6 +1189,13 @@ function interact(p){
   // auto-combine watcher (tryCombineCounter) will turn a TMPL + all required
   // ingredients into a DONE deck.
   if(nr.n==='COUNTER'){
+    // Stale DATA: refuse the drop, auto-spoil with amber floater and -1.
+    if(carry.t==='DATA'&&(carry.staleT||0)>=DATA_STALE_CUTOFF){
+      score=Math.max(0,score-1);
+      staFloats.push({gx:nr.gx,gy:nr.gy,text:'🗑️ spoiled data',color:'#cc8844',life:1.2,ml:1.2});
+      nr.flash='#cc8844';nr.flashT=.4;
+      p.carry=null;return;
+    }
     if(nr.items.length>=(nr.maxQ||8)){
       staFloats.push({gx:nr.gx,gy:nr.gy,text:'Counter full!',color:'#f44',life:1,ml:1});return;
     }
@@ -1118,8 +1206,9 @@ function interact(p){
     p.carry=null;return;
   }
 
-  // TEMPLATES / INTAKE with carry — you already have something, no-op
-  if(nr.n==='TEMPLATES'||nr.n==='INTAKE')return;
+  // TEMPLATES / INTAKE / DATA_COLLECTION with carry — you already have
+  // something, no-op (can't pick up two items at once)
+  if(nr.n==='TEMPLATES'||nr.n==='INTAKE'||nr.n==='DATA_COLLECTION')return;
 
   // Dormant stations (ANALYSIS / SYNTHESIS / COPILOT / FEEDBACK) — should
   // never be reached in Phase C because activeStations gates them off, but
@@ -1290,6 +1379,20 @@ function update(){
   const tm=fSta('TEMPLATES');
   if(tm&&staActive(tm)&&tmplT>=TMPL_SPAWN_INTERVAL&&tm.items.length<TMPL_MAX_QUEUE){
     tm.items.push({t:'TMPL'});tmplT=0;
+  }
+  // DATA spawning at DATA_COLLECTION
+  dataT+=.016;
+  const dc=fSta('DATA_COLLECTION');
+  if(dc&&staActive(dc)&&dataT>=DATA_SPAWN_INTERVAL&&dc.items.length<DATA_MAX_QUEUE){
+    dc.items.push({t:'DATA'});dataT=0;
+  }
+  // Tick stale timer on any carried DATA. When it passes the cutoff, the
+  // next counter drop / delivery auto-spoils it for -1; the render shows
+  // a yellow warning at DATA_STALE_WARN and red stale state at cutoff.
+  for(const pl of [p1,p2]){
+    if(pl.carry&&pl.carry.t==='DATA'){
+      pl.carry.staleT=(pl.carry.staleT||0)+.016;
+    }
   }
 
   // Order spawning (only from this level's pool, with weighted probability)
@@ -1474,7 +1577,7 @@ function render(){
     }
     // Also leave room for the small phase/step indicator
     ctx.font='8px "Press Start 2P",monospace';
-    const phaseSteps={1:8,2:4,3:2};
+    const phaseSteps={1:8,2:4,3:4};
     const total=phaseSteps[tutorial.phase]||1;
     const phaseTxt='Phase '+tutorial.phase+' · Step '+tutorial.step+'/'+total;
     const phaseW=ctx.measureText(phaseTxt).width;
@@ -1566,7 +1669,7 @@ function resetGame(level){
   // Reset players to opposite sides of the open map
   p1.gx=3;p1.gy=5;p1.vx=0;p1.vy=0;p1.carry=null;p1.fr=0;p1.dir=DIR.DL;
   p2.gx=8;p2.gy=5;p2.vx=0;p2.vy=0;p2.carry=null;p2.fr=0;p2.dir=DIR.DL;
-  spT=0;tmplT=0;fbFrozen=null;
+  spT=0;tmplT=0;dataT=0;fbFrozen=null;
   particles.length=0;staFloats.length=0;
   // Reset tutorial hint state
   hintTemplateFired=false;hintTemplateTimer=0;hintTemplateGlow=0;
