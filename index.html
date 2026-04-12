@@ -80,7 +80,7 @@
   </div>
   <div id="controls">
     <span><span class="key">WASD</span> move · <span class="key">SPACE</span> interact</span>
-    <span style="color:#f0c040">Grab a 📋 template, stack ingredients, deliver!</span>
+    <span style="color:#f0c040">Drop ingredients on the 🧩 counter, deliver the deck!</span>
   </div>
   <div id="hud">
     <span>LVL <span class="hv" id="lvl">1</span></span>
@@ -89,7 +89,7 @@
     <span class="p1c">P1: <span class="hv" id="p1c">—</span></span>
     <span class="p2c">P2: <span class="hv" id="p2c">—</span></span>
   </div>
-  <div style="margin-top:4px;font:9px 'Outfit',sans-serif;color:#888">📋 Template | ❓ RQ | 📊 Data | ✅ Deck | 💜 Feedback | 🤖 Copilot</div>
+  <div style="margin-top:4px;font:9px 'Outfit',sans-serif;color:#888">📋 Template | ❓ RQ | 🧩 Counter | ✅ Deck</div>
   <!-- Mobile Controls -->  <div id="mobile-controls" style="display:none;margin-top:12px;user-select:none;-webkit-user-select:none;touch-action:none">    <div style="display:flex;align-items:center;gap:20px">      <div style="display:grid;grid-template-columns:50px 50px 50px;grid-template-rows:50px 50px 50px;gap:4px">        <div></div>        <button class="mbtn" data-key="w">&#9650;</button>        <div></div>        <button class="mbtn" data-key="a">&#9664;</button>        <button class="mbtn" data-key="s">&#9660;</button>        <button class="mbtn" data-key="d">&#9654;</button>      </div>      <button class="mbtn act-btn" data-key=" " style="width:80px;height:80px;border-radius:50%;font-size:14px">ACT</button>    </div>  </div>
 </div>
 
@@ -246,10 +246,13 @@ const sb=new Image();sb.src='boss.png';
 let s1ok=false,s2ok=false,sbok=false;s1.onload=()=>{s1ok=true};s2.onload=()=>{s2ok=true};
 
 // ==================== GENERATED SPRITES ====================
-// Station sprites (keyed by STA .n field)
+// Station sprites (keyed by STA .n field). COUNTER reuses the deck builder
+// sprite as a placeholder — it reads visually as a "surface you drop things
+// onto" which is exactly what COUNTER is under the new single-slot carry
+// model. Phase F will swap in a dedicated counter sprite.
 const STATION_FILES={
   'INTAKE':'intake_station_sprite','ANALYSIS':'analysis_station_sprite',
-  'DECK BUILDER':'deck_builder_station_sprite','DELIVERY':'delivery_station_sprite',
+  'COUNTER':'deck_builder_station_sprite','DELIVERY':'delivery_station_sprite',
   'TRASH':'trash_station_sprite',
   'COPILOT':'copilot_station_sprite','FEEDBACK':'feedback_station_sprite',
 };
@@ -290,7 +293,11 @@ const GRID_X_CENTER_ADJ=(GC-GR)*TW/4;
 function g2s(gx,gy){return{x:CW/2-GRID_X_CENTER_ADJ+(gx-gy)*(TW/2),y:GRID_Y_OFFSET+(gx+gy)*(TH/2)}}
 function gd(ax,ay,bx,by){return Math.sqrt((ax-bx)**2+(ay-by)**2)}
 
-// New tem-PLATE recipe model: requires lists ingredients that must be in TMPL.contents
+// Recipe requirements (single-slot model): `requires` lists ingredient item
+// types that must be present on the COUNTER alongside a TMPL for the recipe
+// to auto-combine into a DONE deck. Phase C only uses QUICK_STAT (['RQ']);
+// the richer recipes are placeholders for when DATA COLLECTION / SYNTHESIS
+// come back online in Phase F.
 const RECIPES = {
   QUICK_STAT: {
     name: 'Quick Stat', points: 1, color: '#88bbff', emoji: '📈',
@@ -314,7 +321,7 @@ const LEVELS = {
   0: {
     name: 'Tutorial',
     orders: ['QUICK_STAT'],
-    activeStations: ['TEMPLATES','INTAKE','DECK BUILDER','DELIVERY','TRASH'],
+    activeStations: ['TEMPLATES','INTAKE','COUNTER','DELIVERY','TRASH'],
     synthesisActive: false,
     roundDuration: 90,
     starThresholds: { 1: 2, 2: 3, 3: 5 },
@@ -322,10 +329,13 @@ const LEVELS = {
     orderTimeLimit: 45,
     isTutorial: true,
   },
+  // Level 1 and Level 2 are placeholder configs — they'll be fully rebuilt
+  // in Phase F once the carry model + COUNTER are stable. For now Level 0
+  // (Tutorial) is the canonical "this works end-to-end" path.
   1: {
     name: 'Level 1',
     orders: ['QUICK_STAT', 'FULL_READOUT'],
-    activeStations: ['TEMPLATES','INTAKE','ANALYSIS','DECK BUILDER','DELIVERY','TRASH','FEEDBACK','COPILOT'],
+    activeStations: ['TEMPLATES','INTAKE','COUNTER','DELIVERY','TRASH'],
     synthesisActive: false,
     roundDuration: 150,
     starThresholds: { 1: 3, 2: 5, 3: 7 },
@@ -335,8 +345,8 @@ const LEVELS = {
   2: {
     name: 'Level 2',
     orders: ['QUICK_STAT', 'FULL_READOUT', 'PSYCH_INSTRUMENT', 'FRAMEWORK_DECK'],
-    activeStations: ['TEMPLATES','INTAKE','ANALYSIS','SYNTHESIS','DECK BUILDER','DELIVERY','TRASH','FEEDBACK','COPILOT'],
-    synthesisActive: true,
+    activeStations: ['TEMPLATES','INTAKE','COUNTER','DELIVERY','TRASH'],
+    synthesisActive: false,
     roundDuration: 150,
     starThresholds: { 1: 4, 2: 6, 3: 9 },
     maxOrders: 3,
@@ -352,7 +362,9 @@ let hintTemplateFired = false, hintTemplateTimer = 0;
 let hintBuilderFired = false, hintBuilderTimer = 0;
 let hintTemplateGlow = 0, hintBuilderGlow = 0; // 0..3 seconds visual
 
-// New item set: TMPL is the carrier; RQ/DATA/LIT are stacked into TMPL.contents; DONE is final
+// Item set — all five types can be carried as single-slot carries and
+// dropped on the COUNTER for auto-combine. TMPL is the recipe "base";
+// RQ/DATA/LIT are ingredients; DONE is the finished deck.
 const ITEMS = {
   TMPL: { name: 'Deck Template',  color: '#aaaaaa', sym: '📋', stackable: true  },
   RQ:   { name: 'Research Q',     color: '#88bbff', sym: '❓', stackable: true  },
@@ -361,24 +373,29 @@ const ITEMS = {
   DONE: { name: 'Polished Deck',  color: '#50b060', sym: '✅', stackable: false },
 };
 // Open-map layout: stations spread evenly across the playfield in a 3x3-ish
-// grid. The five tutorial stations (TEMPLATES, INTAKE, DECK BUILDER, DELIVERY,
+// grid. The five tutorial stations (TEMPLATES, INTAKE, COUNTER, DELIVERY,
 // TRASH) form an evenly-spaced quincunx — corners + center — so the tutorial
 // player walks the whole room. The other four stations (ANALYSIS, SYNTHESIS,
-// FEEDBACK, COPILOT) fill in the edges between for level 1+.
+// FEEDBACK, COPILOT) are kept in the codebase but gated off all levels for
+// now — Phase F rebuilds them against the new single-slot carry model.
 const STA=[
   // Tutorial-visible stations (quincunx)
   {n:'TEMPLATES',gx:2,gy:2,c:'#aaaaaa',items:[],pt:0,maxQ:6},
   {n:'INTAKE',gx:9,gy:2,c:'#88bbff',items:[],pt:0,maxQ:3},
   {n:'TRASH',gx:5,gy:4,c:'#cc4444',items:[],pt:0,maxQ:99},
   {n:'DELIVERY',gx:2,gy:7,c:'#50b060',items:[],pt:0},
-  {n:'DECK BUILDER',gx:9,gy:7,c:'#e0c040',items:[],pt:1.0},
-  // Level 1+ stations (fill the edges)
+  // COUNTER is a neutral drop surface — players put items on it and it
+  // auto-combines them into a DONE deck when a full recipe is present.
+  // No processing time, no player needs to stand nearby.
+  {n:'COUNTER',gx:9,gy:7,c:'#e0c040',items:[],pt:0,maxQ:8},
+  // Gated / dormant stations (not in any level's activeStations right now).
+  // Keep the definitions so sprites/positions are preserved for Phase F.
   {n:'ANALYSIS',gx:5,gy:2,c:'#40a0e0',items:[],pt:2.5,lockout:0},
   {n:'COPILOT',gx:2,gy:4,c:'#1abc9c',items:[],pt:3.0,maxQ:1},
   {n:'FEEDBACK',gx:8,gy:4,c:'#9b59b6',items:[],pt:3.0,maxQ:1},
   {n:'SYNTHESIS',gx:5,gy:7,c:'#f0c040',items:[],pt:1.2},
 ];
-const SICO={'TEMPLATES':'📋','INTAKE':'❓','ANALYSIS':'🔬','DECK BUILDER':'🖥️','DELIVERY':'📤','FEEDBACK':'👔','COPILOT':'🤖','TRASH':'🗑️','SYNTHESIS':'📚'};
+const SICO={'TEMPLATES':'📋','INTAKE':'❓','ANALYSIS':'🔬','COUNTER':'🧩','DELIVERY':'📤','FEEDBACK':'👔','COPILOT':'🤖','TRASH':'🗑️','SYNTHESIS':'📚'};
 function fSta(n){return STA.find(s=>s.n===n)}
 // Is this station active in the current level?
 function staActive(s){
@@ -700,27 +717,15 @@ function dSta(s){
     let bob=it.p?Math.abs(Math.sin(t*4+i))*-6:0;
     ctx.save();ctx.font='16px sans-serif';ctx.textAlign='center';
     ctx.fillText(inf.sym,ix,ib+bob);
-    // For TMPLs, show stacked content row beneath the icon
-    if(it.t==='TMPL'&&it.contents&&it.contents.length>0){
-      ctx.font='10px sans-serif';
-      const row=it.contents.map(k=>ITEMS[k]?ITEMS[k].sym:'').join('');
-      ctx.fillText(row,ix,ib+bob+11);
-    }
-    // Processing bar
+    // Processing bar (still drawn for any future station that cooks things)
     if(it.p&&s.pt>0){
       const pc=it.pr/s.pt,bw=26,bh=4,bx=ix-bw/2,by=ib+18;
       ctx.fillStyle='#222';ctx.fillRect(bx,by,bw,bh);
       const gr=ctx.createLinearGradient(bx,0,bx+bw,0);gr.addColorStop(0,s.c);gr.addColorStop(1,'#fff');
       ctx.fillStyle=gr;ctx.fillRect(bx,by,bw*pc,bh);
     }
-    // Burn timer at ANALYSIS (visible warning ring)
-    if(s.n==='ANALYSIS'&&!it.p&&it.contents&&it.contents.includes('DATA')&&it.burnTimer>0){
-      const bp=it.burnTimer/ANALYSIS_BURN_TIME;
-      ctx.strokeStyle=bp>.6?'#f44':'#fa0';ctx.lineWidth=2;
-      ctx.beginPath();ctx.arc(ix,ib-2,14,0,Math.PI*2*bp);ctx.stroke();
-    }
-    // Ready indicator (non-processing TMPL/DONE on station)
-    if(!it.p&&Math.sin(t*6)>0){
+    // Ready indicator — DONE decks on the counter blink to signal "pick me up"
+    if(!it.p&&it.t==='DONE'&&Math.sin(t*6)>0){
       ctx.font='bold 8px "Outfit",sans-serif';ctx.fillStyle='#4f4';
       ctx.fillText('READY',ix,ib-12);
     }
@@ -740,59 +745,42 @@ function dPl(p,sp,ok){
   if(ok)ctx.drawImage(sp,p.fr*FW,p.dir*FH,FW,FH,x-DW/2,y+TH/2-DH+10,DW,DH);
   else{ctx.beginPath();ctx.arc(x,y+TH/2,16,0,Math.PI*2);ctx.fillStyle='#f0c040';ctx.fill();}
   if(p.carry){
+    // Single-slot carry — one icon in a bubble above the player. DONE gets
+    // a green-glow treatment to make "ready to deliver" read at a glance.
     const bob=Math.sin(Date.now()/300)*2;
-    if(p.carry.t==='DONE'){
-      // Polished deck — green glow, single ✅
-      ctx.save();
-      const cx=x,cy=y-DH*0.55+bob;
+    const isDone=p.carry.t==='DONE';
+    const sym=ITEMS[p.carry.t]?ITEMS[p.carry.t].sym:'?';
+    const cx=x,cy=y-DH*0.55+bob;
+    ctx.save();
+    if(isDone){
       ctx.shadowColor='#4f4';ctx.shadowBlur=14;
-      ctx.fillStyle='#4f4cc';
-      ctx.beginPath();ctx.arc(cx,cy,18,0,Math.PI*2);ctx.fill();
-      ctx.shadowBlur=0;
-      ctx.font='22px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
-      ctx.fillText('✅',cx,cy);
-      ctx.restore();
-    }else if(p.carry.t==='TMPL'){
-      // Template + stacked ingredient row (📋❓📊...)
-      const icons=['📋'];
-      for(const c of (p.carry.contents||[])){if(ITEMS[c])icons.push(ITEMS[c].sym);}
-      const isComplete=tmplComplete(p.carry);
-      const iconSize=14;
-      const totalW=icons.length*iconSize+8;
-      const bx=x-totalW/2,by=y-DH*0.55+bob;
-      ctx.save();
-      // Bubble background — green-tinted when complete
-      ctx.fillStyle=isComplete?'rgba(40,160,60,0.85)':'rgba(0,0,0,0.55)';
-      ctx.strokeStyle=isComplete?'#7fff7f':'#fff8';
-      ctx.lineWidth=isComplete?2:1;
-      if(isComplete){ctx.shadowColor='#4f4';ctx.shadowBlur=8;}
-      ctx.beginPath();ctx.roundRect(bx,by-9,totalW,18,4);ctx.fill();ctx.stroke();
-      ctx.shadowBlur=0;
-      ctx.font=iconSize+'px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
-      for(let i=0;i<icons.length;i++){
-        ctx.fillText(icons[i],bx+4+iconSize/2+i*iconSize,by);
-      }
-      if(isComplete){
-        ctx.font='bold 7px "Press Start 2P",monospace';
-        ctx.fillStyle='#fff';
-        ctx.fillText('READY',x,by-14);
-      }
-      ctx.restore();
+      ctx.fillStyle='rgba(40,160,60,0.85)';
+      ctx.strokeStyle='#7fff7f';ctx.lineWidth=2;
+    }else{
+      ctx.fillStyle='rgba(0,0,0,0.55)';
+      ctx.strokeStyle='#fff8';ctx.lineWidth=1;
     }
+    ctx.beginPath();ctx.arc(cx,cy,14,0,Math.PI*2);ctx.fill();ctx.stroke();
+    ctx.shadowBlur=0;
+    ctx.font='18px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillStyle='#fff';
+    ctx.fillText(sym,cx,cy);
+    if(isDone){
+      ctx.font='bold 7px "Press Start 2P",monospace';
+      ctx.fillStyle='#fff';
+      ctx.fillText('READY',x,cy-22);
+    }
+    ctx.restore();
   }
 }
 
-// Helper: does this TMPL satisfy its assigned recipe's required ingredients?
-function tmplComplete(carry){
-  if(!carry||carry.t!=='TMPL'||!carry.recipe)return false;
-  const rc=RECIPES[carry.recipe];if(!rc)return false;
-  return rc.requires.every(ing=>(carry.contents||[]).includes(ing));
-}
-
-// Helper: build a fresh carry object from a station item
-function carryFromItem(it){
-  return{t:it.t,contents:it.contents?[...it.contents]:[],recipe:it.recipe||null,bonus:it.bonus||0};
-}
+// Single-slot carry model (Phase C): a player holds exactly one item at a
+// time — {t:'TMPL'|'RQ'|'DATA'|'LIT'|'DONE', recipe?, bonus?}. There is no
+// .contents array — ingredients are combined on the COUNTER station, not on
+// the carry itself. Legacy helpers are kept as thin shims so old call sites
+// don't crash during the transition.
+function tmplComplete(carry){return false;} // legacy — no carry is ever "complete"; COUNTER handles combines
+function carryFromItem(it){return{t:it.t,recipe:it.recipe||null,bonus:it.bonus||0};}
 
 // Pick the best order to assign to a freshly-loaded TMPL (prefer matching higher value)
 function assignRecipeForRQ(){
@@ -821,20 +809,19 @@ function weightedRecipePick(pool){
 }
 
 // Tie-breaking station priority — lower returned value = higher priority.
-// When two stations are within ~0.3 grid units, contextual logic picks the
-// one that matches the player's current carry / state.
+// Single-slot carry: when empty-handed, favor stations with pickable items;
+// when carrying DONE, favor DELIVERY; when carrying anything else, favor
+// COUNTER (the neutral drop surface that auto-combines).
 function staPriority(s,p){
   if(!p.carry){
     if(s.n==='TEMPLATES'&&s.items.length>0)return -0.3;
+    if(s.n==='COUNTER'&&s.items.some(i=>i.t==='DONE'))return -0.35;
     if(s.items.some(i=>!i.p))return -0.2;
-  }else if(p.carry.t==='TMPL'){
-    const c=p.carry.contents||[];
-    if(s.n==='INTAKE'&&!c.includes('RQ'))return -0.3;
-    if(s.n==='ANALYSIS'&&c.includes('RQ')&&!c.includes('DATA'))return -0.3;
-    if(s.n==='SYNTHESIS'&&c.includes('RQ')&&!c.includes('LIT'))return -0.3;
-    if(s.n==='DECK BUILDER'&&tmplComplete(p.carry))return -0.3;
   }else if(p.carry.t==='DONE'){
     if(s.n==='DELIVERY')return -0.3;
+  }else{
+    // Carrying an ingredient — counter is the sink
+    if(s.n==='COUNTER')return -0.25;
   }
   return 0;
 }
@@ -847,8 +834,15 @@ function initStations(){
   if(ib)for(let i=0;i<2;i++)ib.items.push({t:'RQ',p:false});
 }
 
+// Single-slot interact (Phase C): a player carries exactly one item and
+// either picks up or drops at the nearest active station. TEMPLATES and
+// INTAKE are pure sources, DELIVERY / TRASH are pure sinks, and COUNTER is
+// both — you drop ingredients on it and pick up the DONE deck that pops out
+// after auto-combine. Everything else (ANALYSIS / SYNTHESIS / COPILOT /
+// FEEDBACK) is intentionally gated off all levels in Phase C and will be
+// rebuilt against the single-slot model in Phase F.
 function interact(p){
-  // Pick nearest station within IR, with contextual priority adjustment as a tie-breaker.
+  // Pick nearest station within IR, with contextual priority adjustment.
   let nr=null,nbest=Infinity;
   for(const s of STA){
     if(!staActive(s))continue;
@@ -862,30 +856,37 @@ function interact(p){
 
   // ============ PICKUP (no carry) ============
   if(!p.carry){
-    // TEMPLATES: grab a fresh empty template
     if(nr.n==='TEMPLATES'){
       if(nr.items.length>0){
         nr.items.pop();
-        p.carry={t:'TMPL',contents:[],recipe:null,bonus:0};
+        p.carry={t:'TMPL',recipe:null,bonus:0};
       }else{
         staFloats.push({gx:nr.gx,gy:nr.gy,text:'(empty)',color:'#888',life:.8,ml:.8});
       }
       return;
     }
-    // INTAKE without a template — guide them to TEMPLATES first
     if(nr.n==='INTAKE'){
-      staFloats.push({gx:nr.gx,gy:nr.gy,text:'Grab a template first! 📋',color:'#fa0',life:1.4,ml:1.4});
+      if(nr.items.length>0){
+        nr.items.pop();
+        p.carry={t:'RQ',recipe:null,bonus:0};
+      }else{
+        staFloats.push({gx:nr.gx,gy:nr.gy,text:'(no RQs yet)',color:'#888',life:.8,ml:.8});
+      }
       return;
     }
-    // Pickup from any station that holds items the player can carry
-    if(nr.items.length>0){
-      const idx=nr.items.findIndex(i=>!i.p);
+    if(nr.n==='COUNTER'){
+      // Priority: grab DONE decks first, then any other item
+      const doneIdx=nr.items.findIndex(i=>i.t==='DONE');
+      const idx=doneIdx>=0?doneIdx:nr.items.findIndex(i=>!i.p);
       if(idx>=0){
         const it=nr.items.splice(idx,1)[0];
         p.carry=carryFromItem(it);
-        if(nr.n==='FEEDBACK')fbFrozen=null;
+      }else{
+        staFloats.push({gx:nr.gx,gy:nr.gy,text:'(empty)',color:'#888',life:.8,ml:.8});
       }
+      return;
     }
+    // DELIVERY / TRASH / dormant stations — nothing to grab
     return;
   }
 
@@ -916,97 +917,64 @@ function interact(p){
     return;
   }
 
-  // After this point, only TMPL is meaningful
-  if(carry.t!=='TMPL'){
-    staFloats.push({gx:nr.gx,gy:nr.gy,text:'❌ Wrong station',color:'#f44',life:1,ml:1});
-    return;
-  }
-
-  // TEMPLATES: already have one
-  if(nr.n==='TEMPLATES')return;
-
-  // INTAKE: stack RQ onto TMPL
-  if(nr.n==='INTAKE'){
-    if(carry.contents.includes('RQ')){
-      staFloats.push({gx:nr.gx,gy:nr.gy,text:'Already has RQ',color:'#f44',life:1,ml:1});return;
+  // COUNTER: drop whatever you're carrying onto the surface. The per-frame
+  // auto-combine watcher (tryCombineCounter) will turn a TMPL + all required
+  // ingredients into a DONE deck.
+  if(nr.n==='COUNTER'){
+    if(nr.items.length>=(nr.maxQ||8)){
+      staFloats.push({gx:nr.gx,gy:nr.gy,text:'Counter full!',color:'#f44',life:1,ml:1});return;
     }
-    if(nr.items.length===0){
-      staFloats.push({gx:nr.gx,gy:nr.gy,text:'No RQs available',color:'#f44',life:1,ml:1});return;
-    }
-    nr.items.pop();
-    carry.contents.push('RQ');
-    if(!carry.recipe){carry.recipe=assignRecipeForRQ();}
-    staFloats.push({gx:nr.gx,gy:nr.gy,text:'+❓',color:'#88bbff',life:.8,ml:.8});
-    return;
-  }
-
-  // ANALYSIS: cook DATA onto TMPL (with overload + lockout)
-  if(nr.n==='ANALYSIS'){
-    if(nr.lockout>0){
-      staFloats.push({gx:nr.gx,gy:nr.gy,text:'🔒 Locked',color:'#f44',life:1,ml:1});return;
-    }
-    if(nr.items.length>=2){
-      // Dropping the 3rd one triggers overload
-      nr.items=[];nr.lockout=ANALYSIS_OVERLOAD_LOCKOUT;
-      nr.flash='#f44';nr.flashT=.6;
-      staFloats.push({gx:nr.gx,gy:nr.gy,text:'🤯 Analysis Paralysis!',color:'#f44',life:2,ml:2});
-      score=Math.max(0,score-1);
-      p.carry=null;return;
-    }
-    if(!carry.contents.includes('RQ')){
-      staFloats.push({gx:nr.gx,gy:nr.gy,text:'❌ Needs RQ first',color:'#f44',life:1,ml:1});return;
-    }
-    if(carry.contents.includes('DATA')){
-      staFloats.push({gx:nr.gx,gy:nr.gy,text:'Already analyzed',color:'#f44',life:1,ml:1});return;
-    }
-    nr.items.push({t:'TMPL',contents:[...carry.contents],recipe:carry.recipe,bonus:carry.bonus||0,p:true,pr:0,burnTimer:0});
+    nr.items.push({t:carry.t,recipe:carry.recipe||null,bonus:carry.bonus||0,p:false});
+    const sym=ITEMS[carry.t]?ITEMS[carry.t].sym:'?';
+    staFloats.push({gx:nr.gx,gy:nr.gy,text:'+'+sym,color:'#e0c040',life:.6,ml:.6});
     p.carry=null;return;
   }
 
-  // SYNTHESIS: stack LIT onto TMPL (Level 2+ only)
-  if(nr.n==='SYNTHESIS'){
-    if(!LEVELS[currentLevel].synthesisActive){
-      staFloats.push({gx:nr.gx,gy:nr.gy,text:'🔒 Level 2',color:'#888',life:1,ml:1});return;
-    }
-    if(carry.contents.includes('LIT')){
-      staFloats.push({gx:nr.gx,gy:nr.gy,text:'Already has LIT',color:'#f44',life:1,ml:1});return;
-    }
-    nr.items.push({t:'TMPL',contents:[...carry.contents],recipe:carry.recipe,bonus:carry.bonus||0,p:true,pr:0});
-    p.carry=null;return;
-  }
+  // TEMPLATES / INTAKE with carry — you already have something, no-op
+  if(nr.n==='TEMPLATES'||nr.n==='INTAKE')return;
 
-  // DECK BUILDER: validate contents match recipe, then process into DONE
-  if(nr.n==='DECK BUILDER'){
-    if(!carry.recipe){
-      staFloats.push({gx:nr.gx,gy:nr.gy,text:'❌ No recipe',color:'#f44',life:1,ml:1});return;
-    }
-    const rc=RECIPES[carry.recipe];
-    const hasAll=rc.requires.every(ing=>carry.contents.includes(ing));
-    if(!hasAll){
-      const missing=rc.requires.filter(ing=>!carry.contents.includes(ing));
-      staFloats.push({gx:nr.gx,gy:nr.gy,text:'❌ Missing '+missing.map(m=>ITEMS[m].sym).join(''),color:'#f44',life:1.2,ml:1.2});
-      nr.flash='#f44';nr.flashT=.4;return;
-    }
-    nr.items.push({t:'TMPL',contents:[...carry.contents],recipe:carry.recipe,bonus:carry.bonus||0,p:true,pr:0});
-    p.carry=null;return;
-  }
+  // Dormant stations (ANALYSIS / SYNTHESIS / COPILOT / FEEDBACK) — should
+  // never be reached in Phase C because activeStations gates them off, but
+  // guard anyway so the game never hard-errors.
+}
 
-  // FEEDBACK: review (existing behavior — adds +1 bonus, freezes player)
-  if(nr.n==='FEEDBACK'){
-    if(nr.items.length<(nr.maxQ||1)){
-      nr.items.push({t:'TMPL',contents:[...carry.contents],recipe:carry.recipe,bonus:carry.bonus||0,p:true,pr:0});
-      p.carry=null;fbFrozen=p;
-    }
-    return;
-  }
+// COUNTER auto-combine: per-frame watcher. If a counter holds TMPL + all
+// ingredients for a recipe the current level serves, consume those items
+// and replace them with a single DONE item (with the matched recipe). No
+// player has to be present — this just runs in the update loop.
+function tryCombineCounter(counter){
+  if(!counter||!counter.items||counter.items.length<2)return;
+  const cfg=LEVELS[currentLevel];
+  if(!cfg||!cfg.orders)return;
+  const hasTmpl=counter.items.some(i=>i.t==='TMPL');
+  if(!hasTmpl)return;
 
-  // COPILOT: ±1 bonus
-  if(nr.n==='COPILOT'){
-    if(nr.items.length<(nr.maxQ||1)){
-      nr.items.push({t:'TMPL',contents:[...carry.contents],recipe:carry.recipe,bonus:carry.bonus||0,p:true,pr:0});
-      p.carry=null;
+  // Try recipes in descending-points order so higher-value combos win ties
+  const pool=[...cfg.orders].sort((a,b)=>RECIPES[b].points-RECIPES[a].points);
+  for(const recipeId of pool){
+    const rc=RECIPES[recipeId];if(!rc)continue;
+    const need=['TMPL',...rc.requires];
+    // Check that every needed item exists on the counter (once, in order)
+    const itemsCopy=counter.items.map(i=>i.t);
+    const consumed=[];
+    let ok=true;
+    for(const req of need){
+      const idx=itemsCopy.indexOf(req);
+      if(idx<0){ok=false;break;}
+      itemsCopy[idx]='__USED__';
+      consumed.push(req);
     }
-    return;
+    if(!ok)continue;
+    // Consume the actual items (match by type, pick the earliest index)
+    for(const req of consumed){
+      const idx=counter.items.findIndex(i=>i.t===req);
+      if(idx>=0)counter.items.splice(idx,1);
+    }
+    counter.items.push({t:'DONE',recipe:recipeId,bonus:0,p:false});
+    counter.flash='#4f4';counter.flashT=.5;
+    staFloats.push({gx:counter.gx,gy:counter.gy,text:'✨ '+rc.emoji+' '+rc.name,color:'#4f4',life:1.4,ml:1.4});
+    spawnCel(counter.gx,counter.gy);
+    return; // one combine per frame is plenty
   }
 }
 
@@ -1066,12 +1034,11 @@ function applyState(d){
 
 function carryDisplayText(c){
   if(!c)return '—';
+  const it=ITEMS[c.t];
+  if(!it)return c.t;
   if(c.t==='DONE')return '✅ Deck';
-  if(c.t==='TMPL'){
-    if(!c.contents||c.contents.length===0)return '📋 empty';
-    return '📋'+c.contents.map(k=>ITEMS[k]?ITEMS[k].sym:k).join('');
-  }
-  return c.t;
+  if(c.t==='TMPL')return '📋 Template';
+  return it.sym+' '+it.name;
 }
 
 function updateHUD(){
@@ -1160,64 +1127,36 @@ function update(){
   }
   for(let i=orderFlashes.length-1;i>=0;i--){orderFlashes[i].life-=.016;if(orderFlashes[i].life<=0)orderFlashes.splice(i,1);}
 
-  // Tutorial hint system (Level 0 only)
+  // Tutorial hint system (Level 0 only). Phase C version is a lightweight
+  // placeholder — Phase D replaces it with the full tutorial state machine.
+  // Hint 1 fires when a player stands empty-handed for 5 seconds. Hint 2
+  // fires when a counter has been sitting with a TMPL for a few seconds
+  // without an RQ — nudges the player toward INTAKE.
   if(cfg.isTutorial){
     hintTemplateTimer+=.016;
     if(!hintTemplateFired&&hintTemplateTimer>5&&!p1.carry&&!p2.carry){
       hintTemplateFired=true;hintTemplateGlow=3;
     }
-    // hint 2: any player carrying a TMPL with at least RQ
-    const anyLoaded=[p1,p2].some(p=>p.carry&&p.carry.t==='TMPL'&&(p.carry.contents||[]).includes('RQ'));
-    if(anyLoaded)hintBuilderTimer+=.016; else hintBuilderTimer=0;
-    if(!hintBuilderFired&&hintBuilderTimer>8){
+    const counter=fSta('COUNTER');
+    const counterHasTmpl=counter&&counter.items.some(i=>i.t==='TMPL');
+    const counterHasRq=counter&&counter.items.some(i=>i.t==='RQ');
+    if(counterHasTmpl&&!counterHasRq)hintBuilderTimer+=.016; else hintBuilderTimer=0;
+    if(!hintBuilderFired&&hintBuilderTimer>4){
       hintBuilderFired=true;hintBuilderGlow=3;
     }
     if(hintTemplateGlow>0)hintTemplateGlow-=.016;
     if(hintBuilderGlow>0)hintBuilderGlow-=.016;
   }
 
-  // Station processing + burn + lockout
+  // COUNTER auto-combine (per frame, no player required) + legacy station
+  // processing hook. ANALYSIS / SYNTHESIS / FEEDBACK / COPILOT processing is
+  // dormant in Phase C (no levels activate them). Their `pt` branch still
+  // runs if an item somehow ends up there, but it's a no-op because we
+  // cleared the DECK BUILDER → DONE conversion.
   for(const s of STA){
     if(!staActive(s))continue;
+    if(s.n==='COUNTER')tryCombineCounter(s);
     if(s.n==='ANALYSIS'&&s.lockout>0){s.lockout-=.016;if(s.lockout<0)s.lockout=0;}
-    for(const it of s.items){
-      if(it.p){
-        // Processing
-        it.pr+=.016;
-        if(it.pr>=s.pt){
-          it.p=false;it.pr=0;
-          if(s.n==='ANALYSIS'){
-            if(it.contents&&!it.contents.includes('DATA'))it.contents.push('DATA');
-            it.burnTimer=0;
-          }else if(s.n==='SYNTHESIS'){
-            if(it.contents&&!it.contents.includes('LIT'))it.contents.push('LIT');
-          }else if(s.n==='DECK BUILDER'){
-            it.t='DONE';
-          }else if(s.n==='FEEDBACK'){
-            it.bonus=(it.bonus||0)+1;
-            staFloats.push({gx:s.gx,gy:s.gy,text:'⬆️+1',color:'#4f4',life:1,ml:1});
-            fbFrozen=null;
-          }else if(s.n==='COPILOT'){
-            const up=Math.random()<.5;
-            it.bonus=(it.bonus||0)+(up?1:-1);
-            s.flash=up?'#4f4':'#f44';s.flashT=.5;
-            staFloats.push({gx:s.gx,gy:s.gy,text:up?'⬆️+1':'⬇️-1',color:up?'#4f4':'#f44',life:1,ml:1});
-          }
-        }
-      }else{
-        // Idle at station — burn check at ANALYSIS
-        if(s.n==='ANALYSIS'&&it.contents&&it.contents.includes('DATA')){
-          it.burnTimer=(it.burnTimer||0)+.016;
-          if(it.burnTimer>=ANALYSIS_BURN_TIME){
-            const di=it.contents.indexOf('DATA');
-            if(di>=0)it.contents.splice(di,1);
-            it.burnTimer=0;
-            s.flash='#f44';s.flashT=.5;
-            staFloats.push({gx:s.gx,gy:s.gy,text:'📉 Data stale!',color:'#f44',life:1.5,ml:1.5});
-          }
-        }
-      }
-    }
   }
 
   // Every human player uses WASD + SPACE on their own machine. No local
@@ -1315,7 +1254,9 @@ function render(){
       ctx.restore();
     }
   }
-  // Tutorial hint glows — TEMPLATES at start, DECK BUILDER once loaded
+  // Tutorial hint glows — TEMPLATES at start, INTAKE once a bare TMPL is
+  // sitting on the counter. Phase D will replace these with targeted
+  // tutorial-step callouts.
   if(LEVELS[currentLevel]&&LEVELS[currentLevel].isTutorial){
     function drawHintGlow(name,life,label){
       if(life<=0)return;
@@ -1335,7 +1276,7 @@ function render(){
       ctx.restore();
     }
     drawHintGlow('TEMPLATES',hintTemplateGlow,'Start here! 📋');
-    drawHintGlow('DECK BUILDER',hintBuilderGlow,'Finalize here! 🖥️');
+    drawHintGlow('INTAKE',hintBuilderGlow,'Grab an RQ! ❓');
   }
   for(const p of particles){ctx.save();ctx.globalAlpha=Math.max(0,p.life/p.ml);ctx.font=p.sz+'px sans-serif';ctx.textAlign='center';ctx.fillText(p.em,p.x,p.y);ctx.restore();}
   // Feedback speech bubble above frozen player
@@ -1524,118 +1465,49 @@ function botThink() {
   if (botActCooldown > 0) botActCooldown -= 50;
 
   const prevState = botState;
-  const cfg = LEVELS[currentLevel] || {};
-  // Bot can use any station active in this level except FEEDBACK / COPILOT
-  // (kept simple/predictable for L0/L1).
-  const skipNames = new Set(['FEEDBACK', 'COPILOT']);
-  const isUsable = (s) => staActive(s) && !skipNames.has(s.n);
+  // Single-slot bot (Phase C): cycles TEMPLATES → COUNTER → INTAKE → COUNTER
+  // → DELIVERY. Alternates which ingredient to fetch next based on what the
+  // counter is missing. Used in "Play with Bot" (Level 1) — which is still
+  // placeholder-broken until Phase F — so this is deliberately simple.
+  const tm = fSta('TEMPLATES');
+  const intake = fSta('INTAKE');
+  const counter = fSta('COUNTER');
+  const del = fSta('DELIVERY');
 
   if (p2.carry) {
-    // === CARRYING ===
     if (p2.carry.t === 'DONE') {
       botState = 'DELIVER';
-      const del = fSta('DELIVERY');
-      botNavigate(del.gx + 0.5, del.gy + 0.5);
-    } else if (p2.carry.t === 'TMPL') {
-      const rc = p2.carry.recipe ? RECIPES[p2.carry.recipe] : null;
-      const c = p2.carry.contents || [];
-      // No recipe yet — load an RQ first
-      if (!rc) {
-        const ib = fSta('INTAKE');
-        if (ib && isUsable(ib) && ib.items.length > 0) {
-          botState = 'LOAD_RQ';
-          botNavigate(ib.gx + 0.5, ib.gy + 0.5);
-        } else {
-          // No RQs available — wait near INTAKE
-          botState = 'WAIT_RQ';
-          if (ib) botNavigate(ib.gx + 1.2, ib.gy + 0.5);
-        }
-      }
-      // Recipe expired/removed — trash it
-      else if (!orders.some(o => o.recipe === p2.carry.recipe)) {
-        botState = 'TRASH';
-        const tr = fSta('TRASH');
-        botNavigate(tr.gx + 0.5, tr.gy + 0.5);
-      } else {
-        const hasAll = rc.requires.every(ing => c.includes(ing));
-        if (hasAll) {
-          botState = 'BUILD';
-          const db = fSta('DECK BUILDER');
-          botNavigate(db.gx + 0.5, db.gy + 0.5);
-        } else if (!c.includes('RQ')) {
-          // Need RQ
-          botState = 'LOAD_RQ';
-          const ib = fSta('INTAKE');
-          if (ib && ib.items.length > 0) botNavigate(ib.gx + 0.5, ib.gy + 0.5);
-          else if (ib) botNavigate(ib.gx + 1.2, ib.gy + 0.5);
-        } else if (rc.requires.includes('DATA') && !c.includes('DATA')) {
-          // Drop at ANALYSIS to cook DATA
-          const an = fSta('ANALYSIS');
-          if (an && isUsable(an) && an.lockout <= 0 && an.items.length < 2) {
-            botState = 'COOK_DATA';
-            botNavigate(an.gx + 0.5, an.gy + 0.5);
-          } else if (an) {
-            botState = 'WAIT_AN';
-            botNavigate(an.gx + 1.2, an.gy + 0.5);
-          }
-        } else {
-          // Fallback — trash it
-          botState = 'TRASH';
-          const tr = fSta('TRASH');
-          botNavigate(tr.gx + 0.5, tr.gy + 0.5);
-        }
-      }
+      if (del) botNavigate(del.gx + 0.5, del.gy + 0.5);
     } else {
-      botState = 'TRASH';
-      const tr = fSta('TRASH');
-      botNavigate(tr.gx + 0.5, tr.gy + 0.5);
+      // Any non-DONE carry goes to the counter
+      botState = 'DROP_AT_COUNTER';
+      if (counter) botNavigate(counter.gx + 0.5, counter.gy + 0.5);
     }
   } else {
-    // === NO CARRY: find something to grab ===
-    let target = null;
-    let bestScore = -Infinity;
-
-    for (const s of STA) {
-      if (!isUsable(s)) continue;
-      if (s.n === 'TRASH' || s.n === 'DELIVERY' || s.n === 'INTAKE') continue;
-      // Pickable items: ready (not processing)
-      const pickable = s.items.filter(i => !i.p);
-      // TEMPLATES — has TMPLs to grab
-      if (s.n === 'TEMPLATES') {
-        if (pickable.length === 0) continue;
-      } else if (pickable.length === 0) continue;
-
-      let sc = 10;
-      // Strong preference for DONE items at DECK BUILDER (just deliver them)
-      if (s.n === 'DECK BUILDER') sc += 50;
-      // ANALYSIS pickup (TMPL with DATA cooked) is high value
-      if (s.n === 'ANALYSIS') {
-        const ready = s.items.find(i => !i.p && i.contents && i.contents.includes('DATA'));
-        if (ready) sc += 40; else continue;
-      }
-      // TEMPLATES — pickup a fresh TMPL
-      if (s.n === 'TEMPLATES') sc += 20;
-      const dist = gd(p2.gx, p2.gy, s.gx + 0.5, s.gy + 0.5);
-      sc -= dist * 2;
-      if (sc > bestScore) { bestScore = sc; target = s; }
-    }
-
-    if (target) {
-      botState = 'FETCH';
-      botNavigate(target.gx + 0.5, target.gy + 0.5);
+    // Empty-handed decision tree
+    const counterHasDone = counter && counter.items.some(i => i.t === 'DONE');
+    const counterHasTmpl = counter && counter.items.some(i => i.t === 'TMPL');
+    const counterHasRq = counter && counter.items.some(i => i.t === 'RQ');
+    if (counterHasDone) {
+      botState = 'PICKUP_DONE';
+      botNavigate(counter.gx + 0.5, counter.gy + 0.5);
+    } else if (!counterHasTmpl && tm && tm.items.length > 0) {
+      botState = 'FETCH_TMPL';
+      botNavigate(tm.gx + 0.5, tm.gy + 0.5);
+    } else if (!counterHasRq && intake && intake.items.length > 0) {
+      botState = 'FETCH_RQ';
+      botNavigate(intake.gx + 0.5, intake.gy + 0.5);
     } else {
-      // Idle near TEMPLATES waiting for spawn
       botState = 'IDLE';
-      const tm = fSta('TEMPLATES');
-      if (tm) {
-        const idleDist = gd(p2.gx, p2.gy, tm.gx + 1.2, tm.gy + 0.5);
-        if (idleDist > 1.5) botNavigate(tm.gx + 1.2, tm.gy + 0.5);
+      if (counter) {
+        const idleDist = gd(p2.gx, p2.gy, counter.gx + 1.3, counter.gy + 0.5);
+        if (idleDist > 1.5) botNavigate(counter.gx + 1.3, counter.gy + 0.5);
       }
     }
   }
 
   if (prevState !== botState) {
-    console.log(`[BOT] ${prevState} → ${botState}` + (p2.carry ? ` (${p2.carry.t}${p2.carry.contents?'['+p2.carry.contents.join(',')+']':''})` : ''));
+    console.log(`[BOT] ${prevState} → ${botState}` + (p2.carry ? ` (${p2.carry.t})` : ''));
   }
 }
 
