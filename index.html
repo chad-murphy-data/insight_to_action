@@ -7,15 +7,15 @@
   @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Outfit:wght@400;700&family=Delicious+Handrawn&display=swap');
   *{margin:0;padding:0;box-sizing:border-box}
   body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;overflow:hidden;font-family:'Outfit',sans-serif;color:#ccc}
-  h1{font-family:'Press Start 2P',monospace;font-size:20px;color:#f0c040;text-shadow:2px 2px 0 #d4780088,0 0 20px #f0c04044;letter-spacing:2px}
+  h1{font-family:'Delicious Handrawn',cursive;font-size:56px;color:#f0c040;text-shadow:2px 2px 0 #d4780088,0 0 20px #f0c04044;letter-spacing:1px;line-height:1}
   #lobby{text-align:center;max-width:400px}
   #lobby p{margin:12px 0;font-size:14px;color:#8888aa}
-  .btn{font-family:'Press Start 2P',monospace;font-size:11px;padding:12px 24px;border:2px solid #f0c040;background:transparent;color:#f0c040;border-radius:6px;cursor:pointer;margin:6px;transition:all .2s}
+  .btn{font-family:'Delicious Handrawn',cursive;font-size:22px;padding:10px 22px;border:2px solid #f0c040;background:transparent;color:#f0c040;border-radius:6px;cursor:pointer;margin:6px;transition:all .2s;letter-spacing:1px}
   .btn:hover{background:#f0c04022}
   .btn:disabled{opacity:.4;cursor:default}
-  #room-code{font-family:'Press Start 2P',monospace;font-size:24px;color:#f0c040;letter-spacing:4px;margin:16px 0}
-  input[type=text]{font-family:'Press Start 2P',monospace;font-size:14px;padding:10px 16px;background:#2a2a4e;border:2px solid #444466;border-radius:6px;color:#f0c040;text-align:center;text-transform:uppercase;width:240px;letter-spacing:3px}
-  input::placeholder{color:#555;font-size:10px;letter-spacing:1px}
+  #room-code{font-family:'Delicious Handrawn',cursive;font-size:40px;color:#f0c040;letter-spacing:4px;margin:16px 0}
+  input[type=text]{font-family:'Delicious Handrawn',cursive;font-size:22px;padding:8px 16px;background:#2a2a4e;border:2px solid #444466;border-radius:6px;color:#f0c040;text-align:center;text-transform:uppercase;width:240px;letter-spacing:3px}
+  input::placeholder{color:#555;font-size:16px;letter-spacing:1px}
   #status{font-size:12px;color:#88aa88;margin:10px 0}
   #game-wrap{display:none;flex-direction:column;align-items:center}
   #game-container{border:2px solid #333355;border-radius:8px;overflow:hidden;box-shadow:0 0 40px #0004}
@@ -28,15 +28,15 @@
   #timer.danger{color:#ff4444;animation:pulse 0.6s infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
   #game-container{position:relative}
-  #game-over-overlay{display:none;position:absolute;inset:0;background:rgba(10,10,30,0.92);flex-direction:column;align-items:center;justify-content:center;color:#f0c040;z-index:100;font-family:'Press Start 2P',monospace;text-align:center;padding:12px;overflow-y:auto}
+  #game-over-overlay{display:none;position:absolute;inset:0;background:rgba(10,10,30,0.92);flex-direction:column;align-items:center;justify-content:center;color:#f0c040;z-index:100;font-family:'Delicious Handrawn',cursive;text-align:center;padding:12px;overflow-y:auto}
   #game-over-overlay.show{display:flex}
-  #go-header{font-size:22px;margin-bottom:10px;text-shadow:2px 2px 0 #d4780088,0 0 18px #f0c04066;letter-spacing:2px;line-height:1.2;max-width:95%}
-  #go-score{font-size:15px;color:#fff;margin:4px 0}
-  #go-deliveries{font-size:11px;color:#bbb;margin:4px 0}
-  #go-stars{font-size:36px;margin:6px 0;min-height:40px}
-  #go-rank{font-size:11px;color:#f0c040;margin:4px 0 12px}
+  #go-header{font-size:42px;margin-bottom:8px;text-shadow:2px 2px 0 #d4780088,0 0 18px #f0c04066;letter-spacing:1px;line-height:1;max-width:95%}
+  #go-score{font-size:24px;color:#fff;margin:2px 0}
+  #go-deliveries{font-size:18px;color:#bbb;margin:2px 0}
+  #go-stars{font-size:36px;margin:4px 0;min-height:40px}
+  #go-rank{font-size:18px;color:#f0c040;margin:2px 0 10px;font-family:'Outfit',sans-serif;font-weight:400}
   #go-buttons{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
-  #go-buttons .btn{font-size:9px;padding:8px 14px;margin:3px}
+  #go-buttons .btn{font-size:18px;padding:6px 14px;margin:3px}
   .mbtn{font-family:"Press Start 2P",monospace;font-size:16px;width:50px;height:50px;border:2px solid #f0c040;background:#2a2a4e;color:#f0c040;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center}  .mbtn:active,.mbtn.pressed{background:#f0c04044}  @media(pointer:coarse){#mobile-controls{display:flex!important}}
 </style>
 </head>
@@ -69,7 +69,7 @@
     <div id="game-over-overlay">
       <div id="go-header">TIME'S UP!</div>
       <div id="go-score">Score: 0</div>
-      <div id="go-deliveries">Deliveries: 0</div>
+      <div id="go-deliveries">Shareouts: 0</div>
       <div id="go-stars"></div>
       <div id="go-rank"></div>
       <div id="go-buttons">
@@ -81,7 +81,7 @@
   </div>
   <div id="controls">
     <span><span class="key">WASD</span> move · <span class="key">SPACE</span> interact</span>
-    <span style="color:#f0c040">Drop ingredients on the 🧩 counter, deliver the deck!</span>
+    <span style="color:#f0c040">Drop ingredients on the 🧩 counter, share out the deck!</span>
   </div>
   <div id="hud">
     <span>LVL <span class="hv" id="lvl">1</span></span>
@@ -90,7 +90,7 @@
     <span class="p1c">P1: <span class="hv" id="p1c">—</span></span>
     <span class="p2c">P2: <span class="hv" id="p2c">—</span></span>
   </div>
-  <div style="margin-top:4px;font:9px 'Outfit',sans-serif;color:#888">📋 Template | ❓ RQ | 📊 Data | 🧩 Counter | ✅ Deck</div>
+  <div style="margin-top:4px;font:11px 'Outfit',sans-serif;color:#888">📋 Template | ❓ Intake | 📊 Data | 🧩 Counter | ✅ Deck</div>
   <!-- Mobile Controls -->  <div id="mobile-controls" style="display:none;margin-top:12px;user-select:none;-webkit-user-select:none;touch-action:none">    <div style="display:flex;align-items:center;gap:20px">      <div style="display:grid;grid-template-columns:50px 50px 50px;grid-template-rows:50px 50px 50px;gap:4px">        <div></div>        <button class="mbtn" data-key="w">&#9650;</button>        <div></div>        <button class="mbtn" data-key="a">&#9664;</button>        <button class="mbtn" data-key="s">&#9660;</button>        <button class="mbtn" data-key="d">&#9654;</button>      </div>      <button class="mbtn act-btn" data-key=" " style="width:80px;height:80px;border-radius:50%;font-size:14px">ACT</button>    </div>  </div>
 </div>
 
@@ -405,23 +405,23 @@ const TUTORIAL_PROMPTS = {
   '1:1': { both: 'Move with WASD' },
   '1:2': { both: 'Grab a 📋 template' },
   '1:3': { both: 'Drop it on the 🧩 counter' },
-  '1:4': { both: 'Grab a ❓ research question' },
+  '1:4': { both: 'Grab an ❓ intake card' },
   '1:5': { both: 'Drop it on the counter!' },
   '1:6': { both: 'Grab the ✅ finished deck' },
-  '1:7': { both: 'Deliver at 📤 DELIVERY!' },
+  '1:7': { both: 'Share out at 📤 SHAREOUT!' },
   '1:8': { both: '🎉 Great! Try it together…' },
   '2:1': {
     both: 'DIVIDE AND CONQUER',
     p1:   'P1: TEMPLATE runner 📋',
-    p2:   'P2: RQ runner ❓',
+    p2:   'P2: INTAKE runner ❓',
     solo: 'Solo test: run both jobs',
   },
   '2:2': { both: 'Drop your item on 🧩 counter' },
-  '2:3': { both: 'Grab the deck and deliver!' },
+  '2:3': { both: 'Grab the deck and share out!' },
   '2:4': { both: '🎉 Nice teamwork!' },
   '3:1': { both: 'Grab 📊 DATA — it goes stale!' },
-  '3:2': { both: 'Rush DATA + TMPL + RQ to 🧩 counter' },
-  '3:3': { both: 'Deliver the full readout!' },
+  '3:2': { both: 'Rush DATA + TMPL + INTAKE to 🧩 counter' },
+  '3:3': { both: 'Share out the full readout!' },
   '3:4': { both: '🏆 Tutorial complete!' },
 };
 function startTutorial(){
@@ -584,7 +584,7 @@ function noteCounterDrop(player,itemType){
 // RQ/DATA/LIT are ingredients; DONE is the finished deck.
 const ITEMS = {
   TMPL: { name: 'Deck Template',  color: '#aaaaaa', sym: '📋', stackable: true  },
-  RQ:   { name: 'Research Q',     color: '#88bbff', sym: '❓', stackable: true  },
+  RQ:   { name: 'Intake',         color: '#88bbff', sym: '❓', stackable: true  },
   DATA: { name: 'Analyzed Data',  color: '#40a0e0', sym: '📊', stackable: true  },
   LIT:  { name: 'Lit Review',     color: '#f0c040', sym: '📚', stackable: true  },
   DONE: { name: 'Polished Deck',  color: '#50b060', sym: '✅', stackable: false },
@@ -620,7 +620,7 @@ const STA=[
 ];
 const SICO={'TEMPLATES':'📋','INTAKE':'❓','ANALYSIS':'🔬','COUNTER':'🧩','DELIVERY':'📤','FEEDBACK':'👔','COPILOT':'🤖','TRASH':'🗑️','SYNTHESIS':'📚','DATA_COLLECTION':'📊'};
 // Display names for station pills (shorter / prettier than raw keys).
-const STA_LABEL={'DATA_COLLECTION':'DATA'};
+const STA_LABEL={'DATA_COLLECTION':'DATA','DELIVERY':'SHAREOUT'};
 function fSta(n){return STA.find(s=>s.n===n)}
 // Is this station active in the current level?
 function staActive(s){
@@ -1130,7 +1130,7 @@ function interact(p){
         nr.items.pop();
         p.carry={t:'RQ',recipe:null,bonus:0};
       }else{
-        staFloats.push({gx:nr.gx,gy:nr.gy,text:'(no RQs yet)',color:'#888',life:.8,ml:.8});
+        staFloats.push({gx:nr.gx,gy:nr.gy,text:'(no intake yet)',color:'#888',life:.8,ml:.8});
       }
       return;
     }
@@ -1461,8 +1461,8 @@ function update(){
   tickTutorial(.016);
 
   // Every human player uses WASD + SPACE on their own machine. No local
-  // split-screen. No IJKL. P2 is either a remote player (host/guest) or a
-  // bot (Play with Bot mode) or inert (solo tutorial testing).
+  // split-screen. P2 is either a remote player (host/guest) or a bot
+  // (Play with Bot mode) or inert (solo tutorial testing).
   if(role==='host'){
     // P1 = local keyboard, P2 = remote guest's input
     if(fbFrozen!==p1)updPl(p1,keys['w'],keys['s'],keys['a'],keys['d'],!!jp[' ']);
@@ -1487,6 +1487,8 @@ function update(){
       updPl(p2,guestInput.up,guestInput.down,guestInput.left,guestInput.right,guestInput.act);
       guestInput.act=false;
       const bs=Math.sqrt(p2.vx**2+p2.vy**2);if(bs>MSPD*BOT_SPEED){p2.vx*=MSPD*BOT_SPEED/bs;p2.vy*=MSPD*BOT_SPEED/bs;}
+    }else if(fbFrozen!==p2){
+      updPl(p2,keys['i'],keys['k'],keys['j'],keys['l'],!!jp[';']);
     }
   }
 
@@ -1511,8 +1513,8 @@ function render(){
     const pct=(o.timeLimit-o.elapsed)/o.timeLimit;
     ctx.save();ctx.fillStyle='#1a1a2eee';ctx.strokeStyle=r.color;ctx.lineWidth=2;
     ctx.beginPath();ctx.roundRect(OX,cy,OW,OH,8);ctx.fill();ctx.stroke();
-    ctx.font='14px "Press Start 2P",monospace';ctx.textAlign='left';ctx.fillStyle=r.color;
-    ctx.fillText(r.emoji+' '+r.name,OX+12,cy+28);
+    ctx.font='bold 22px "Delicious Handrawn",cursive';ctx.textAlign='left';ctx.fillStyle=r.color;
+    ctx.fillText(r.emoji+' '+r.name,OX+12,cy+30);
     ctx.font='bold 14px "Outfit",sans-serif';ctx.fillStyle='#bbb';
     ctx.fillText(r.points+' pts',OX+12,cy+50);
     // Required ingredients row
@@ -1576,22 +1578,22 @@ function render(){
     ctx.save();
     let maxTxtW=0;
     for(const l of lines){
-      ctx.font=l.big?'bold 13px "Press Start 2P",monospace':'bold 11px "Press Start 2P",monospace';
+      ctx.font=l.big?'bold 22px "Delicious Handrawn",cursive':'bold 18px "Delicious Handrawn",cursive';
       const w=ctx.measureText(l.txt).width;
       if(w>maxTxtW)maxTxtW=w;
     }
     // Also leave room for the small phase/step indicator
-    ctx.font='8px "Press Start 2P",monospace';
+    ctx.font='bold 12px "Outfit",sans-serif';
     const phaseSteps={1:8,2:4,3:4};
     const total=phaseSteps[tutorial.phase]||1;
     const phaseTxt='Phase '+tutorial.phase+' · Step '+tutorial.step+'/'+total;
     const phaseW=ctx.measureText(phaseTxt).width;
     ctx.restore();
     // Banner box
-    const lineH=22;
+    const lineH=26;
     const paddingX=32;
     const bannerW=Math.min(CW-20,Math.max(400,maxTxtW+paddingX,phaseW+paddingX));
-    const bannerH=18+lines.length*lineH+14; // +14 for phase/step line
+    const bannerH=18+lines.length*lineH+16; // +16 for phase/step line
     const bx=(CW-bannerW)/2, by=8;
     const pulse=.85+.15*Math.sin(Date.now()/400);
     ctx.save();
@@ -1604,12 +1606,12 @@ function render(){
     ctx.textAlign='center';ctx.textBaseline='middle';
     for(let i=0;i<lines.length;i++){
       const l=lines[i];
-      ctx.font=l.big?'bold 13px "Press Start 2P",monospace':'bold 11px "Press Start 2P",monospace';
+      ctx.font=l.big?'bold 22px "Delicious Handrawn",cursive':'bold 18px "Delicious Handrawn",cursive';
       ctx.fillStyle=l.color;
-      ctx.fillText(l.txt,CW/2,by+14+i*lineH);
+      ctx.fillText(l.txt,CW/2,by+16+i*lineH);
     }
     // Phase/step indicator (bottom-right of banner)
-    ctx.font='8px "Press Start 2P",monospace';
+    ctx.font='bold 12px "Outfit",sans-serif';
     ctx.textAlign='right';ctx.fillStyle='#888';
     ctx.fillText(phaseTxt,bx+bannerW-12,by+bannerH-8);
     ctx.restore();
@@ -1629,14 +1631,14 @@ function render(){
     ctx.textAlign='center';ctx.textBaseline='middle';
     const isTut=LEVELS[currentLevel]&&LEVELS[currentLevel].isTutorial;
     // Title above the number
-    ctx.font='bold 22px "Press Start 2P",monospace';
+    ctx.font='bold 52px "Delicious Handrawn",cursive';
     ctx.fillStyle='#f0c040';
     ctx.shadowColor='#000';ctx.shadowBlur=10;
-    ctx.fillText('INSIGHT KITCHEN',CW/2,CH/2-130);
+    ctx.fillText('Insight Kitchen',CW/2,CH/2-125);
     if(isTut){
-      ctx.font='14px "Press Start 2P",monospace';
+      ctx.font='bold 22px "Delicious Handrawn",cursive';
       ctx.fillStyle='#fff';
-      ctx.fillText('Follow the prompts to learn the kitchen.',CW/2,CH/2-95);
+      ctx.fillText('Follow the prompts to learn the kitchen.',CW/2,CH/2-88);
     }
     ctx.shadowBlur=0;
     let txt,sub='';
@@ -1649,12 +1651,12 @@ function render(){
     }
     // Pulsing scale
     const pulse=1+0.1*Math.sin(Date.now()/120);
-    ctx.font='bold '+Math.round(140*pulse)+'px "Press Start 2P",monospace';
+    ctx.font='bold '+Math.round(160*pulse)+'px "Delicious Handrawn",cursive';
     ctx.fillStyle='#f0c040';
     ctx.shadowColor='#000';ctx.shadowBlur=20;
     ctx.fillText(txt,CW/2,CH/2);
     ctx.shadowBlur=0;
-    ctx.font='16px "Press Start 2P",monospace';
+    ctx.font='bold 24px "Delicious Handrawn",cursive';
     ctx.fillStyle='#fff';
     ctx.fillText(sub,CW/2,CH/2+90);
     ctx.restore();
@@ -1707,7 +1709,7 @@ function showGameOverOverlay(){
   }
   document.getElementById('go-score').textContent='Score: '+score;
   document.getElementById('go-deliveries').textContent=
-    deliveries+(deliveries===1?' deck delivered!':' decks delivered!');
+    deliveries+(deliveries===1?' deck shared!':' decks shared!');
   // Fun icon + rank label keyed off deliveries — no skulls, no failure
   const starsEl=document.getElementById('go-stars');
   const rankEl=document.getElementById('go-rank');
