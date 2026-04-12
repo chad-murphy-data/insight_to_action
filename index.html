@@ -248,7 +248,7 @@ let s1ok=false,s2ok=false,sbok=false;s1.onload=()=>{s1ok=true};s2.onload=()=>{s2
 // ==================== GENERATED SPRITES ====================
 // Station sprites (keyed by STA .n field)
 const STATION_FILES={
-  'INBOX':'inbox_station_sprite','ANALYSIS':'analysis_station_sprite',
+  'INTAKE':'intake_station_sprite','ANALYSIS':'analysis_station_sprite',
   'DECK BUILDER':'deck_builder_station_sprite','DELIVERY':'delivery_station_sprite',
   'TRASH':'trash_station_sprite',
   'COPILOT':'copilot_station_sprite','FEEDBACK':'feedback_station_sprite',
@@ -314,7 +314,7 @@ const LEVELS = {
   0: {
     name: 'Tutorial',
     orders: ['QUICK_STAT'],
-    activeStations: ['TEMPLATES','INBOX','DECK BUILDER','DELIVERY','TRASH'],
+    activeStations: ['TEMPLATES','INTAKE','DECK BUILDER','DELIVERY','TRASH'],
     synthesisActive: false,
     roundDuration: 90,
     starThresholds: { 1: 2, 2: 3, 3: 5 },
@@ -325,7 +325,7 @@ const LEVELS = {
   1: {
     name: 'Level 1',
     orders: ['QUICK_STAT', 'FULL_READOUT'],
-    activeStations: ['TEMPLATES','INBOX','ANALYSIS','DECK BUILDER','DELIVERY','TRASH','FEEDBACK','COPILOT'],
+    activeStations: ['TEMPLATES','INTAKE','ANALYSIS','DECK BUILDER','DELIVERY','TRASH','FEEDBACK','COPILOT'],
     synthesisActive: false,
     roundDuration: 150,
     starThresholds: { 1: 3, 2: 5, 3: 7 },
@@ -335,7 +335,7 @@ const LEVELS = {
   2: {
     name: 'Level 2',
     orders: ['QUICK_STAT', 'FULL_READOUT', 'PSYCH_INSTRUMENT', 'FRAMEWORK_DECK'],
-    activeStations: ['TEMPLATES','INBOX','ANALYSIS','SYNTHESIS','DECK BUILDER','DELIVERY','TRASH','FEEDBACK','COPILOT'],
+    activeStations: ['TEMPLATES','INTAKE','ANALYSIS','SYNTHESIS','DECK BUILDER','DELIVERY','TRASH','FEEDBACK','COPILOT'],
     synthesisActive: true,
     roundDuration: 150,
     starThresholds: { 1: 4, 2: 6, 3: 9 },
@@ -361,14 +361,14 @@ const ITEMS = {
   DONE: { name: 'Polished Deck',  color: '#50b060', sym: '✅', stackable: false },
 };
 // Open-map layout: stations spread evenly across the playfield in a 3x3-ish
-// grid. The five tutorial stations (TEMPLATES, INBOX, DECK BUILDER, DELIVERY,
+// grid. The five tutorial stations (TEMPLATES, INTAKE, DECK BUILDER, DELIVERY,
 // TRASH) form an evenly-spaced quincunx — corners + center — so the tutorial
 // player walks the whole room. The other four stations (ANALYSIS, SYNTHESIS,
 // FEEDBACK, COPILOT) fill in the edges between for level 1+.
 const STA=[
   // Tutorial-visible stations (quincunx)
   {n:'TEMPLATES',gx:2,gy:2,c:'#aaaaaa',items:[],pt:0,maxQ:6},
-  {n:'INBOX',gx:9,gy:2,c:'#88bbff',items:[],pt:0,maxQ:3},
+  {n:'INTAKE',gx:9,gy:2,c:'#88bbff',items:[],pt:0,maxQ:3},
   {n:'TRASH',gx:5,gy:4,c:'#cc4444',items:[],pt:0,maxQ:99},
   {n:'DELIVERY',gx:2,gy:7,c:'#50b060',items:[],pt:0},
   {n:'DECK BUILDER',gx:9,gy:7,c:'#e0c040',items:[],pt:1.0},
@@ -378,7 +378,7 @@ const STA=[
   {n:'FEEDBACK',gx:8,gy:4,c:'#9b59b6',items:[],pt:3.0,maxQ:1},
   {n:'SYNTHESIS',gx:5,gy:7,c:'#f0c040',items:[],pt:1.2},
 ];
-const SICO={'TEMPLATES':'📋','INBOX':'❓','ANALYSIS':'🔬','DECK BUILDER':'🖥️','DELIVERY':'📤','FEEDBACK':'👔','COPILOT':'🤖','TRASH':'🗑️','SYNTHESIS':'📚'};
+const SICO={'TEMPLATES':'📋','INTAKE':'❓','ANALYSIS':'🔬','DECK BUILDER':'🖥️','DELIVERY':'📤','FEEDBACK':'👔','COPILOT':'🤖','TRASH':'🗑️','SYNTHESIS':'📚'};
 function fSta(n){return STA.find(s=>s.n===n)}
 // Is this station active in the current level?
 function staActive(s){
@@ -829,7 +829,7 @@ function staPriority(s,p){
     if(s.items.some(i=>!i.p))return -0.2;
   }else if(p.carry.t==='TMPL'){
     const c=p.carry.contents||[];
-    if(s.n==='INBOX'&&!c.includes('RQ'))return -0.3;
+    if(s.n==='INTAKE'&&!c.includes('RQ'))return -0.3;
     if(s.n==='ANALYSIS'&&c.includes('RQ')&&!c.includes('DATA'))return -0.3;
     if(s.n==='SYNTHESIS'&&c.includes('RQ')&&!c.includes('LIT'))return -0.3;
     if(s.n==='DECK BUILDER'&&tmplComplete(p.carry))return -0.3;
@@ -842,7 +842,7 @@ function staPriority(s,p){
 // Pre-fill stations so the first GO isn't dead — players have something to do immediately
 function initStations(){
   const tm=fSta('TEMPLATES');
-  const ib=fSta('INBOX');
+  const ib=fSta('INTAKE');
   if(tm)for(let i=0;i<3;i++)tm.items.push({t:'TMPL'});
   if(ib)for(let i=0;i<2;i++)ib.items.push({t:'RQ',p:false});
 }
@@ -872,8 +872,8 @@ function interact(p){
       }
       return;
     }
-    // INBOX without a template — guide them to TEMPLATES first
-    if(nr.n==='INBOX'){
+    // INTAKE without a template — guide them to TEMPLATES first
+    if(nr.n==='INTAKE'){
       staFloats.push({gx:nr.gx,gy:nr.gy,text:'Grab a template first! 📋',color:'#fa0',life:1.4,ml:1.4});
       return;
     }
@@ -925,8 +925,8 @@ function interact(p){
   // TEMPLATES: already have one
   if(nr.n==='TEMPLATES')return;
 
-  // INBOX: stack RQ onto TMPL
-  if(nr.n==='INBOX'){
+  // INTAKE: stack RQ onto TMPL
+  if(nr.n==='INTAKE'){
     if(carry.contents.includes('RQ')){
       staFloats.push({gx:nr.gx,gy:nr.gy,text:'Already has RQ',color:'#f44',life:1,ml:1});return;
     }
@@ -1124,9 +1124,9 @@ function update(){
 
   const cfg=LEVELS[currentLevel];
 
-  // RQ spawning at INBOX
+  // RQ spawning at INTAKE
   spT+=.016;
-  const ib=fSta('INBOX');
+  const ib=fSta('INTAKE');
   if(ib&&staActive(ib)&&spT>=RQ_SPAWN_INTERVAL&&ib.items.length<RQ_MAX_QUEUE){
     ib.items.push({t:'RQ',p:false});spT=0;
   }
@@ -1541,12 +1541,12 @@ function botThink() {
       const c = p2.carry.contents || [];
       // No recipe yet — load an RQ first
       if (!rc) {
-        const ib = fSta('INBOX');
+        const ib = fSta('INTAKE');
         if (ib && isUsable(ib) && ib.items.length > 0) {
           botState = 'LOAD_RQ';
           botNavigate(ib.gx + 0.5, ib.gy + 0.5);
         } else {
-          // No RQs available — wait near INBOX
+          // No RQs available — wait near INTAKE
           botState = 'WAIT_RQ';
           if (ib) botNavigate(ib.gx + 1.2, ib.gy + 0.5);
         }
@@ -1565,7 +1565,7 @@ function botThink() {
         } else if (!c.includes('RQ')) {
           // Need RQ
           botState = 'LOAD_RQ';
-          const ib = fSta('INBOX');
+          const ib = fSta('INTAKE');
           if (ib && ib.items.length > 0) botNavigate(ib.gx + 0.5, ib.gy + 0.5);
           else if (ib) botNavigate(ib.gx + 1.2, ib.gy + 0.5);
         } else if (rc.requires.includes('DATA') && !c.includes('DATA')) {
@@ -1597,7 +1597,7 @@ function botThink() {
 
     for (const s of STA) {
       if (!isUsable(s)) continue;
-      if (s.n === 'TRASH' || s.n === 'DELIVERY' || s.n === 'INBOX') continue;
+      if (s.n === 'TRASH' || s.n === 'DELIVERY' || s.n === 'INTAKE') continue;
       // Pickable items: ready (not processing)
       const pickable = s.items.filter(i => !i.p);
       // TEMPLATES — has TMPLs to grab
