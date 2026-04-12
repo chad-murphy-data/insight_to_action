@@ -58,7 +58,7 @@
   </div>
   <div id="room-code" style="display:none"></div>
   <div id="status"></div>
-  <p style="font-size:10px;color:#444;margin-top:40px">P1: WASD+SPACE | P2: IJKL+ENTER</p>
+  <p style="font-size:10px;color:#444;margin-top:40px">WASD + SPACE — both players, same controls</p>
 </div>
 
 <!-- GAME -->
@@ -79,8 +79,7 @@
     </div>
   </div>
   <div id="controls">
-    <span class="p1c"><span class="key">WASD</span> + <span class="key">SPACE</span> — P1</span>
-    <span class="p2c"><span class="key">IJKL</span> + <span class="key">ENTER</span> — P2</span>
+    <span><span class="key">WASD</span> move · <span class="key">SPACE</span> interact</span>
     <span style="color:#f0c040">Grab a 📋 template, stack ingredients, deliver!</span>
   </div>
   <div id="hud">
@@ -1221,29 +1220,33 @@ function update(){
     }
   }
 
+  // Every human player uses WASD + SPACE on their own machine. No local
+  // split-screen. No IJKL. P2 is either a remote player (host/guest) or a
+  // bot (Play with Bot mode) or inert (solo tutorial testing).
   if(role==='host'){
+    // P1 = local keyboard, P2 = remote guest's input
     if(fbFrozen!==p1)updPl(p1,keys['w'],keys['s'],keys['a'],keys['d'],!!jp[' ']);
     if(fbFrozen!==p2)updPl(p2,guestInput.up,guestInput.down,guestInput.left,guestInput.right,guestInput.act);
     guestInput.act=false;
     frameCount++;
     sendState(getState());
   } else if(role==='guest'){
-    updPl(p2,keys['w']||keys['arrowup']||keys['i'],keys['s']||keys['arrowdown']||keys['k'],
-      keys['a']||keys['arrowleft']||keys['j'],keys['d']||keys['arrowright']||keys['l'],
-      !!jp[' ']||!!jp['enter']);
-    sendInput({up:keys['w']||keys['arrowup']||keys['i'],down:keys['s']||keys['arrowdown']||keys['k'],
-      left:keys['a']||keys['arrowleft']||keys['j'],right:keys['d']||keys['arrowright']||keys['l'],
-      act:!!jp[' ']||!!jp['enter']});
+    // Guest's local player is P2 from the host's perspective. Ship input up.
+    const up=keys['w']||keys['arrowup'],dn=keys['s']||keys['arrowdown'];
+    const lt=keys['a']||keys['arrowleft'],rt=keys['d']||keys['arrowright'];
+    const act=!!jp[' '];
+    updPl(p2,up,dn,lt,rt,act);
+    sendInput({up,down:dn,left:lt,right:rt,act});
   } else {
+    // Local mode (tutorial / Play with Bot / offline). P1 = WASD+SPACE.
+    // P2 is driven by the bot when active, otherwise sits inert (used for
+    // solo tutorial testing — one keyboard drives P1 through all tutorial
+    // steps, and Phase 2's role-split callouts target P1 sequentially).
     if(fbFrozen!==p1)updPl(p1,keys['w'],keys['s'],keys['a'],keys['d'],!!jp[' ']);
-    if(fbFrozen!==p2){
-      if(botActive){
-        updPl(p2,guestInput.up,guestInput.down,guestInput.left,guestInput.right,guestInput.act);
-        guestInput.act=false;
-        const bs=Math.sqrt(p2.vx**2+p2.vy**2);if(bs>MSPD*BOT_SPEED){p2.vx*=MSPD*BOT_SPEED/bs;p2.vy*=MSPD*BOT_SPEED/bs;}
-      }else{
-        updPl(p2,keys['i'],keys['k'],keys['j'],keys['l'],!!jp['enter']);
-      }
+    if(fbFrozen!==p2&&botActive){
+      updPl(p2,guestInput.up,guestInput.down,guestInput.left,guestInput.right,guestInput.act);
+      guestInput.act=false;
+      const bs=Math.sqrt(p2.vx**2+p2.vy**2);if(bs>MSPD*BOT_SPEED){p2.vx*=MSPD*BOT_SPEED/bs;p2.vy*=MSPD*BOT_SPEED/bs;}
     }
   }
 
