@@ -362,6 +362,193 @@ let hintTemplateFired = false, hintTemplateTimer = 0;
 let hintBuilderFired = false, hintBuilderTimer = 0;
 let hintTemplateGlow = 0, hintBuilderGlow = 0; // 0..3 seconds visual
 
+// ==================== TUTORIAL STATE MACHINE ====================
+// The tutorial is a game MODE, not a UI overlay. `tutorial.active` flips on
+// in playTutorial() and the state machine drives which instructions render
+// and when the round is allowed to end. It gates on "both players did X" in
+// multiplayer mode, and gates on P1 only when in solo testing mode (role is
+// null and no bot — one keyboard drives the whole tutorial).
+const tutorial = {
+  active: false,
+  phase: 0,           // 1 | 2 | 3 (0 = inactive)
+  step: 0,            // 1..N within a phase
+  stepStart: 0,       // seconds since entering this step
+  totalElapsed: 0,    // seconds since tutorial began
+  movementSeenP1: false,
+  movementSeenP2: false,
+  deliveriesAtStepStart: 0,
+  counterDropsAtStepStart: 0,
+  p1DropsOnCounter: 0, // counter drops by P1 (phase 2 role gate)
+  p2DropsOnCounter: 0, // counter drops by P2 (phase 2 role gate)
+  dropsThisStep: {},   // item types dropped on counter during current step
+  complete: false,
+};
+function isTutorialSolo(){
+  // Solo testing mode — one keyboard drives P1, P2 is inert. Gates only
+  // check P1 in this mode so a solo tester can walk through everything.
+  return role===null && !botActive;
+}
+// Prompts are keyed "phase:step". `both` shows to everyone; `p1`/`p2`
+// are role-specific (used in Phase 2 "Divide and Conquer"). `solo` is the
+// alternate prompt used in solo mode when a multi-player step splits work.
+const TUTORIAL_PROMPTS = {
+  '1:1': { both: 'Move with WASD' },
+  '1:2': { both: 'Grab a 📋 template' },
+  '1:3': { both: 'Drop it on the 🧩 counter' },
+  '1:4': { both: 'Grab a ❓ research question' },
+  '1:5': { both: 'Drop it on the counter!' },
+  '1:6': { both: 'Grab the ✅ finished deck' },
+  '1:7': { both: 'Deliver at 📤 DELIVERY!' },
+  '1:8': { both: '🎉 Great! Try it together…' },
+  '2:1': {
+    both: 'DIVIDE AND CONQUER',
+    p1:   'P1: TEMPLATE runner 📋',
+    p2:   'P2: RQ runner ❓',
+    solo: 'Solo test: run both jobs',
+  },
+  '2:2': { both: 'Drop your item on 🧩 counter' },
+  '2:3': { both: 'Grab the deck and deliver!' },
+  '2:4': { both: '🎉 Nice teamwork!' },
+  '3:1': { both: 'Phase 3 — Data Collection (soon)' },
+  '3:2': { both: '🏆 Tutorial complete!' },
+};
+function startTutorial(){
+  tutorial.active=true;
+  tutorial.phase=1;
+  tutorial.step=1;
+  tutorial.stepStart=0;
+  tutorial.totalElapsed=0;
+  tutorial.movementSeenP1=false;
+  tutorial.movementSeenP2=false;
+  tutorial.deliveriesAtStepStart=0;
+  tutorial.counterDropsAtStepStart=0;
+  tutorial.p1DropsOnCounter=0;
+  tutorial.p2DropsOnCounter=0;
+  tutorial.dropsThisStep={};
+  tutorial.complete=false;
+}
+function stopTutorial(){
+  tutorial.active=false;
+  tutorial.phase=0;
+  tutorial.step=0;
+  tutorial.complete=false;
+}
+// Advance to the next step (or next phase, or complete). Called only when
+// a step's check function returns true.
+function advanceTutorial(){
+  tutorial.stepStart=0;
+  tutorial.deliveriesAtStepStart=deliveries;
+  tutorial.dropsThisStep={};
+  const counter=fSta('COUNTER');
+  tutorial.counterDropsAtStepStart=counter?counter.items.length:0;
+  // Simple linear progression through the hard-coded step counts below.
+  const phaseSteps={1:8,2:4,3:2};
+  if(tutorial.step<phaseSteps[tutorial.phase]){
+    tutorial.step++;
+  }else if(tutorial.phase<3){
+    tutorial.phase++;
+    tutorial.step=1;
+    tutorial.p1DropsOnCounter=0;
+    tutorial.p2DropsOnCounter=0;
+  }else{
+    // End of phase 3 — tutorial complete. Trigger gameover.
+    tutorial.complete=true;
+    gamePhase='gameover';
+    showGameOverOverlay();
+  }
+}
+// Per-step check: returns true if the current step is satisfied. Solo mode
+// simplifies "both players did X" checks to "P1 did X".
+function tutorialStepCheck(){
+  const ph=tutorial.phase, st=tutorial.step, solo=isTutorialSolo();
+  const counter=fSta('COUNTER');
+  const counterItems=counter?counter.items.map(i=>i.t):[];
+  if(ph===1){
+    if(st===1){
+      // Movement + ~2s dwell — in solo, only P1 needs to move
+      if(Math.abs(p1.vx)+Math.abs(p1.vy)>.05)tutorial.movementSeenP1=true;
+      if(Math.abs(p2.vx)+Math.abs(p2.vy)>.05)tutorial.movementSeenP2=true;
+      if(solo)return tutorial.movementSeenP1&&tutorial.stepStart>2;
+      return tutorial.movementSeenP1&&tutorial.movementSeenP2&&tutorial.stepStart>2;
+    }
+    if(st===2){
+      // Any player holding a TMPL
+      const p1Has=p1.carry&&p1.carry.t==='TMPL';
+      const p2Has=p2.carry&&p2.carry.t==='TMPL';
+      return solo?p1Has:(p1Has||p2Has);
+    }
+    if(st===3){
+      // Counter has a TMPL on it
+      return counterItems.includes('TMPL');
+    }
+    if(st===4){
+      // Any player holding an RQ
+      const p1Has=p1.carry&&p1.carry.t==='RQ';
+      const p2Has=p2.carry&&p2.carry.t==='RQ';
+      return solo?p1Has:(p1Has||p2Has);
+    }
+    if(st===5){
+      // Counter has a DONE deck (the combine fired)
+      return counterItems.includes('DONE');
+    }
+    if(st===6){
+      // Player holding the DONE
+      const p1Has=p1.carry&&p1.carry.t==='DONE';
+      const p2Has=p2.carry&&p2.carry.t==='DONE';
+      return solo?p1Has:(p1Has||p2Has);
+    }
+    if(st===7){
+      // Deliveries increased since step start
+      return deliveries>tutorial.deliveriesAtStepStart;
+    }
+    if(st===8){
+      // Pause beat so the congrats reads, then advance to phase 2
+      return tutorial.stepStart>2.5;
+    }
+  }
+  if(ph===2){
+    if(st===1){
+      // Read the role split — 3s dwell
+      return tutorial.stepStart>3;
+    }
+    if(st===2){
+      // Both a TMPL and an RQ must have been dropped on the counter during
+      // this step. We track by drop event because the auto-combine consumes
+      // the items before the next tick, so a "current items" check misses.
+      return !!(tutorial.dropsThisStep.TMPL&&tutorial.dropsThisStep.RQ);
+    }
+    if(st===3){
+      // Someone delivered a deck
+      return deliveries>tutorial.deliveriesAtStepStart;
+    }
+    if(st===4){
+      return tutorial.stepStart>2.5;
+    }
+  }
+  if(ph===3){
+    // Placeholder phase until Phase E lands DATA COLLECTION
+    if(st===1)return tutorial.stepStart>2.5;
+    if(st===2)return tutorial.stepStart>2;
+  }
+  return false;
+}
+function tickTutorial(dt){
+  if(!tutorial.active)return;
+  if(gamePhase!=='playing')return;
+  tutorial.totalElapsed+=dt;
+  tutorial.stepStart+=dt;
+  if(tutorialStepCheck())advanceTutorial();
+}
+// Called by the COUNTER drop path so Phase 2 can tell who dropped what.
+// Also records item types dropped during the current step so checks can
+// fire even after the combine consumes the items.
+function noteCounterDrop(player,itemType){
+  if(!tutorial.active)return;
+  if(player===p1)tutorial.p1DropsOnCounter++;
+  else if(player===p2)tutorial.p2DropsOnCounter++;
+  tutorial.dropsThisStep[itemType]=(tutorial.dropsThisStep[itemType]||0)+1;
+}
+
 // Item set — all five types can be carried as single-slot carries and
 // dropped on the COUNTER for auto-combine. TMPL is the recipe "base";
 // RQ/DATA/LIT are ingredients; DONE is the finished deck.
@@ -927,6 +1114,7 @@ function interact(p){
     nr.items.push({t:carry.t,recipe:carry.recipe||null,bonus:carry.bonus||0,p:false});
     const sym=ITEMS[carry.t]?ITEMS[carry.t].sym:'?';
     staFloats.push({gx:nr.gx,gy:nr.gy,text:'+'+sym,color:'#e0c040',life:.6,ml:.6});
+    noteCounterDrop(p,carry.t);
     p.carry=null;return;
   }
 
@@ -1159,6 +1347,11 @@ function update(){
     if(s.n==='ANALYSIS'&&s.lockout>0){s.lockout-=.016;if(s.lockout<0)s.lockout=0;}
   }
 
+  // Tutorial state machine — runs only when tutorial.active, drives the
+  // step progression and the callout renderer. Must run after counter
+  // combine so counter state reflects the current frame's combines.
+  tickTutorial(.016);
+
   // Every human player uses WASD + SPACE on their own machine. No local
   // split-screen. No IJKL. P2 is either a remote player (host/guest) or a
   // bot (Play with Bot mode) or inert (solo tutorial testing).
@@ -1201,9 +1394,11 @@ function render(){
   drawWoodFloor();
   for(let r=0;r<GR;r++)for(let c=0;c<GC;c++)dTile(c,r);
   drawWalls();
-  // Order cards (top-left overlay)
+  // Order cards (top-left overlay) — hidden during the tutorial state
+  // machine so the callout banner reads cleanly. They come back on Level 1+.
   const OW=280,OH=110,OX=16,OY=16,OG=10;
-  for(let i=0;i<orders.length;i++){
+  const drawOrderCards=!tutorial.active;
+  for(let i=0;drawOrderCards&&i<orders.length;i++){
     const o=orders[i],r=RECIPES[o.recipe],cy=OY+i*(OH+OG);
     const pct=(o.timeLimit-o.elapsed)/o.timeLimit;
     ctx.save();ctx.fillStyle='#1a1a2eee';ctx.strokeStyle=r.color;ctx.lineWidth=2;
@@ -1223,7 +1418,7 @@ function render(){
     ctx.fillRect(bx,by_+bh*(1-pct),bw,bh*pct);
     ctx.restore();
   }
-  for(const f of orderFlashes){const cy=OY+f.idx*(OH+OG);ctx.save();ctx.globalAlpha=f.life/f.ml*.5;ctx.fillStyle='#cc8844';ctx.beginPath();ctx.roundRect(OX,cy,OW,OH,8);ctx.fill();ctx.restore();}
+  if(drawOrderCards)for(const f of orderFlashes){const cy=OY+f.idx*(OH+OG);ctx.save();ctx.globalAlpha=f.life/f.ml*.5;ctx.fillStyle='#cc8844';ctx.beginPath();ctx.roundRect(OX,cy,OW,OH,8);ctx.fill();ctx.restore();}
   const dr=[];
   for(const s of STA){
     if(!staActive(s))continue;
@@ -1254,29 +1449,62 @@ function render(){
       ctx.restore();
     }
   }
-  // Tutorial hint glows — TEMPLATES at start, INTAKE once a bare TMPL is
-  // sitting on the counter. Phase D will replace these with targeted
-  // tutorial-step callouts.
-  if(LEVELS[currentLevel]&&LEVELS[currentLevel].isTutorial){
-    function drawHintGlow(name,life,label){
-      if(life<=0)return;
-      const s=fSta(name);if(!s)return;
-      const{x,y}=g2s(s.gx,s.gy);
-      const a=Math.min(1,life/3);
-      const pulse=.5+.5*Math.sin(Date.now()/160);
-      ctx.save();
-      ctx.globalAlpha=a*pulse;
-      ctx.strokeStyle='#fff44f';ctx.lineWidth=4;
-      ctx.shadowColor='#fff44f';ctx.shadowBlur=20;
-      ctx.beginPath();ctx.moveTo(x,y-4);ctx.lineTo(x+TW/2+4,y+TH/2);ctx.lineTo(x,y+TH+4);ctx.lineTo(x-TW/2-4,y+TH/2);ctx.closePath();
-      ctx.stroke();
-      ctx.shadowBlur=0;ctx.globalAlpha=a;
-      ctx.font='bold 12px "Press Start 2P",monospace';ctx.textAlign='center';ctx.fillStyle='#fff44f';
-      ctx.fillText(label,x,y-44);
-      ctx.restore();
+  // ============ TUTORIAL CALLOUT BANNER ============
+  // Top-center banner showing the current step's prompt. In Phase 2 solo
+  // mode it shows the `solo` variant; in Phase 2 multi mode it shows
+  // per-player callouts stacked.
+  if(tutorial.active&&gamePhase==='playing'){
+    const prompts=TUTORIAL_PROMPTS[tutorial.phase+':'+tutorial.step]||{both:'...'};
+    const solo=isTutorialSolo();
+    const lines=[];
+    if(prompts.both)lines.push({txt:prompts.both,color:'#f0c040',big:true});
+    if(solo&&prompts.solo){
+      lines.push({txt:prompts.solo,color:'#fff',big:false});
+    }else if(!solo&&(prompts.p1||prompts.p2)){
+      if(prompts.p1)lines.push({txt:prompts.p1,color:'#88bbff',big:false});
+      if(prompts.p2)lines.push({txt:prompts.p2,color:'#ffbb88',big:false});
     }
-    drawHintGlow('TEMPLATES',hintTemplateGlow,'Start here! 📋');
-    drawHintGlow('INTAKE',hintBuilderGlow,'Grab an RQ! ❓');
+    // Measure actual text widths so the banner always fits its longest line.
+    ctx.save();
+    let maxTxtW=0;
+    for(const l of lines){
+      ctx.font=l.big?'bold 13px "Press Start 2P",monospace':'bold 11px "Press Start 2P",monospace';
+      const w=ctx.measureText(l.txt).width;
+      if(w>maxTxtW)maxTxtW=w;
+    }
+    // Also leave room for the small phase/step indicator
+    ctx.font='8px "Press Start 2P",monospace';
+    const phaseSteps={1:8,2:4,3:2};
+    const total=phaseSteps[tutorial.phase]||1;
+    const phaseTxt='Phase '+tutorial.phase+' · Step '+tutorial.step+'/'+total;
+    const phaseW=ctx.measureText(phaseTxt).width;
+    ctx.restore();
+    // Banner box
+    const lineH=22;
+    const paddingX=32;
+    const bannerW=Math.min(CW-20,Math.max(400,maxTxtW+paddingX,phaseW+paddingX));
+    const bannerH=18+lines.length*lineH+14; // +14 for phase/step line
+    const bx=(CW-bannerW)/2, by=8;
+    const pulse=.85+.15*Math.sin(Date.now()/400);
+    ctx.save();
+    ctx.globalAlpha=pulse;
+    ctx.fillStyle='rgba(26,26,46,0.92)';
+    ctx.strokeStyle='#f0c040';ctx.lineWidth=2;
+    ctx.shadowColor='#f0c040';ctx.shadowBlur=12;
+    ctx.beginPath();ctx.roundRect(bx,by,bannerW,bannerH,8);ctx.fill();ctx.stroke();
+    ctx.shadowBlur=0;
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    for(let i=0;i<lines.length;i++){
+      const l=lines[i];
+      ctx.font=l.big?'bold 13px "Press Start 2P",monospace':'bold 11px "Press Start 2P",monospace';
+      ctx.fillStyle=l.color;
+      ctx.fillText(l.txt,CW/2,by+14+i*lineH);
+    }
+    // Phase/step indicator (bottom-right of banner)
+    ctx.font='8px "Press Start 2P",monospace';
+    ctx.textAlign='right';ctx.fillStyle='#888';
+    ctx.fillText(phaseTxt,bx+bannerW-12,by+bannerH-8);
+    ctx.restore();
   }
   for(const p of particles){ctx.save();ctx.globalAlpha=Math.max(0,p.life/p.ml);ctx.font=p.sz+'px sans-serif';ctx.textAlign='center';ctx.fillText(p.em,p.x,p.y);ctx.restore();}
   // Feedback speech bubble above frozen player
@@ -1300,7 +1528,7 @@ function render(){
     if(isTut){
       ctx.font='14px "Press Start 2P",monospace';
       ctx.fillStyle='#fff';
-      ctx.fillText('Grab a template. Load it up. Deliver the deck.',CW/2,CH/2-95);
+      ctx.fillText('Follow the prompts to learn the kitchen.',CW/2,CH/2-95);
     }
     ctx.shadowBlur=0;
     let txt,sub='';
@@ -1343,6 +1571,10 @@ function resetGame(level){
   // Reset tutorial hint state
   hintTemplateFired=false;hintTemplateTimer=0;hintTemplateGlow=0;
   hintBuilderFired=false;hintBuilderTimer=0;hintBuilderGlow=0;
+  // If the current level is the tutorial, restart the state machine;
+  // otherwise stop it so other levels don't show callouts.
+  if(cfg.isTutorial)startTutorial();
+  else stopTutorial();
   hideGameOverOverlay();
   updateHUD();
 }
@@ -1352,12 +1584,18 @@ function showGameOverOverlay(){
   if(!overlay)return;
   const cfg=LEVELS[currentLevel];
   const isTut=cfg&&cfg.isTutorial;
-  // Celebration-only header — tone changes by score but never negative
+  const tutorialFinished=isTut&&tutorial.complete;
+  // Celebration-only header — tutorial completion shows a special header
+  // regardless of score, since the goal was "learn the flow".
   const hdr=document.getElementById('go-header');
   if(hdr){
-    hdr.textContent = score>=10 ? 'INCREDIBLE! 🔥' :
-                      score>=5  ? 'GREAT WORK! ⭐' :
-                                  'NICE TRY! 💪';
+    if(tutorialFinished){
+      hdr.textContent='TUTORIAL COMPLETE! 🏆';
+    }else{
+      hdr.textContent = score>=10 ? 'INCREDIBLE! 🔥' :
+                        score>=5  ? 'GREAT WORK! ⭐' :
+                                    'NICE TRY! 💪';
+    }
   }
   document.getElementById('go-score').textContent='Score: '+score;
   document.getElementById('go-deliveries').textContent=
@@ -1419,6 +1657,7 @@ document.addEventListener('DOMContentLoaded',()=>{
     document.getElementById('game-wrap').style.display='none';
     document.getElementById('lobby').style.display='block';
     stopBot();
+    stopTutorial();
   };
 });
 
@@ -1432,6 +1671,7 @@ function playTutorial() {
   role = null;
   botActive = false;
   startGame(0);
+  startTutorial();
 }
 
 function playWithBot() {
