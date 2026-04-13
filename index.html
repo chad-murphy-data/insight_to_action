@@ -246,33 +246,82 @@ const s2=new Image();s2.src='employee.png';
 const sb=new Image();sb.src='boss.png';
 let s1ok=false,s2ok=false,sbok=false;s1.onload=()=>{s1ok=true};s2.onload=()=>{s2ok=true};
 
-// ==================== GENERATED SPRITES ====================
-// Station sprites (keyed by STA .n field). COUNTER reuses the deck builder
-// sprite as a placeholder — it reads visually as a "surface you drop things
-// onto" which is exactly what COUNTER is under the new single-slot carry
-// model. Phase F will swap in a dedicated counter sprite.
+// ==================== SPRITES ====================
+// Station sprites (keyed by STA .n field). Each station has a dedicated
+// Gemini-generated isometric sprite with magenta background removed.
 const STATION_FILES={
-  'INTAKE':'intake_station_sprite','ANALYSIS':'analysis_station_sprite',
-  'COUNTER':'deck_builder_station_sprite','DELIVERY':'delivery_station_sprite',
+  'TEMPLATES':'templates_station_sprite',
+  'INTAKE':'intake_station_sprite',
+  'DATA_COLLECTION':'data_collection_station_sprite',
+  'COUNTER':'counter_station_sprite',
+  'DELIVERY':'shareout_station_sprite',
   'TRASH':'trash_station_sprite',
-  'COPILOT':'copilot_station_sprite','FEEDBACK':'feedback_station_sprite',
-  // DATA_COLLECTION reuses the analysis sprite for now — visually it reads
-  // as a "data" station with charts, perfect fit for the new stale mechanic.
-  'DATA_COLLECTION':'analysis_station_sprite',
+  'ANALYSIS':'analysis_station_sprite',
+  'SYNTHESIS':'synthesis_station_sprite',
+  'FEEDBACK':'feedback_station_sprite',
+  'COPILOT':'copilot_station_sprite',
 };
 const STATION_SPRITES={};
 for(const [k,f] of Object.entries(STATION_FILES)){
-  const img=new Image();img.src=`assets/sprites/${f}.png`;
+  const img=new Image();img.src=`assets/${f}.png`;
   STATION_SPRITES[k]={img,ok:false};
   img.onload=()=>{STATION_SPRITES[k].ok=true};
 }
-// Carry icon sprites (keyed by ITEM type)
-const CARRY_FILES={'RAW':'carry_icon_report','ANA':'carry_icon_slide','DRAFT':'carry_icon_deck','DONE':'carry_icon_deck'};
+// Carry icon sprites (keyed by ITEM type key from ITEMS)
+const CARRY_FILES={
+  'TMPL':'carry_template',
+  'RQ':'carry_intake',
+  'DATA':'carry_data',
+  'LIT':'carry_lit',
+  'DONE':'carry_deck',
+};
 const CARRY_SPRITES={};
 for(const [k,f] of Object.entries(CARRY_FILES)){
-  const img=new Image();img.src=`assets/sprites/${f}.png`;
+  const img=new Image();img.src=`assets/${f}.png`;
   CARRY_SPRITES[k]={img,ok:false};
   img.onload=()=>{CARRY_SPRITES[k].ok=true};
+}
+// Tinted DONE deck cache — pre-bake one tinted version per recipe color so we
+// don't create a 2048x2048 offscreen canvas every frame. Rainbow is special-cased
+// and rendered to a small 64x64 canvas per-frame instead.
+const TINTED_DECK_CACHE={};
+const TINT_SIZE=128; // cache at 128px — plenty for 30-32px draw calls
+function getTintedDeck(recipeId){
+  if(TINTED_DECK_CACHE[recipeId])return TINTED_DECK_CACHE[recipeId];
+  const src=CARRY_SPRITES['DONE'];
+  if(!src||!src.ok)return null;
+  const rc=RECIPES[recipeId];if(!rc)return null;
+  if(rc.rainbow)return null; // rainbow is per-frame, skip cache
+  const oc=document.createElement('canvas');oc.width=TINT_SIZE;oc.height=TINT_SIZE;
+  const ox=oc.getContext('2d');
+  ox.drawImage(src.img,0,0,TINT_SIZE,TINT_SIZE);
+  ox.globalCompositeOperation='source-atop';
+  ox.globalAlpha=0.45;
+  ox.fillStyle=rc.color;
+  ox.fillRect(0,0,TINT_SIZE,TINT_SIZE);
+  TINTED_DECK_CACHE[recipeId]=oc;
+  return oc;
+}
+// Small reusable canvas for rainbow per-frame tint (64x64 — cheap)
+const _rbCanvas=document.createElement('canvas');_rbCanvas.width=64;_rbCanvas.height=64;
+const _rbCtx=_rbCanvas.getContext('2d');
+function getRainbowDeck(){
+  const src=CARRY_SPRITES['DONE'];
+  if(!src||!src.ok)return null;
+  _rbCtx.clearRect(0,0,64,64);
+  _rbCtx.drawImage(src.img,0,0,64,64);
+  _rbCtx.globalCompositeOperation='source-atop';
+  const hue=(Date.now()/8)%360;
+  const rg=_rbCtx.createLinearGradient(0,0,64,64);
+  rg.addColorStop(0,`hsl(${hue},90%,60%)`);
+  rg.addColorStop(0.5,`hsl(${(hue+120)%360},90%,60%)`);
+  rg.addColorStop(1,`hsl(${(hue+240)%360},90%,60%)`);
+  _rbCtx.globalAlpha=0.5;
+  _rbCtx.fillStyle=rg;
+  _rbCtx.fillRect(0,0,64,64);
+  _rbCtx.globalCompositeOperation='source-over';
+  _rbCtx.globalAlpha=1;
+  return _rbCanvas;
 }
 // Floor is drawn procedurally as warm wood planks — see drawWoodFloor() in render layer.
 // Strip white/light background from boss sprite to match transparent player sprites
@@ -298,35 +347,35 @@ function g2s(gx,gy){return{x:CW/2-GRID_X_CENTER_ADJ+(gx-gy)*(TW/2),y:GRID_Y_OFFS
 function gd(ax,ay,bx,by){return Math.sqrt((ax-bx)**2+(ay-by)**2)}
 
 // Recipe requirements (single-slot model): `requires` lists ingredient item
-// types that must be present on the COUNTER alongside a TMPL for the recipe
-// to auto-combine into a DONE deck. Phase C only uses QUICK_STAT (['RQ']);
-// the richer recipes are placeholders for when DATA COLLECTION / SYNTHESIS
-// come back online in Phase F.
+// Recipes: ingredient combos that auto-combine on a COUNTER when a TMPL +
+// all required items are present. Each recipe = a distinct "dish" like
+// Overcooked. Points increase with complexity.
 const RECIPES = {
-  QUICK_STAT: {
-    name: 'Quick Stat', points: 1, color: '#88bbff', emoji: '📈',
+  STAT_SNAPSHOT: {
+    name: 'Stat Snapshot', points: 1, color: '#88bbff', emoji: '📈',
     requires: ['RQ'], level: 1,
   },
-  FULL_READOUT: {
-    name: 'Full Readout', points: 2, color: '#f0c040', emoji: '📊',
+  INSIGHT_REPORT: {
+    name: 'Insight Report', points: 2, color: '#f0c040', emoji: '📊',
     requires: ['RQ', 'DATA'], level: 1,
   },
-  PSYCH_INSTRUMENT: {
-    name: 'Psych Instrument', points: 3, color: '#ff8c42', emoji: '🧠',
+  DEEP_DIVE: {
+    name: 'Deep Dive', points: 3, color: '#ff8c42', emoji: '🧠',
     requires: ['RQ', 'DATA', 'LIT'], level: 2,
   },
-  FRAMEWORK_DECK: {
-    name: 'Framework Deck', points: 4, color: '#d4a843', emoji: '🏗️',
+  THE_FRAMEWORK: {
+    name: 'The Framework', points: 4, color: '#d4a843', emoji: '🦄',
     requires: ['RQ', 'DATA', 'LIT'], level: 2, needsFeedback: true,
+    rainbow: true, // triggers rainbow unicorn glow on carry + counter
   },
 };
 // Per-level config: orders, active stations, star targets, round/order timing
 const LEVELS = {
   0: {
     name: 'Tutorial',
-    // QUICK_STAT is the Phase 1/2 recipe (TMPL + RQ). FULL_READOUT is the
+    // STAT_SNAPSHOT is the Phase 1/2 recipe (TMPL + RQ). INSIGHT_REPORT is the
     // Phase 3 recipe (TMPL + RQ + DATA) — teaches the stale mechanic.
-    orders: ['QUICK_STAT', 'FULL_READOUT'],
+    orders: ['STAT_SNAPSHOT', 'INSIGHT_REPORT'],
     activeStations: ['TEMPLATES','INTAKE','COUNTER','DELIVERY','TRASH','DATA_COLLECTION'],
     synthesisActive: false,
     roundDuration: 180,
@@ -337,11 +386,11 @@ const LEVELS = {
   },
   // Level 1: introduces pressure with two recipes. Uses the stale DATA
   // mechanic the tutorial taught, so the full set of "phase 1-3" stations
-  // is in play. PSYCH_INSTRUMENT / FRAMEWORK_DECK still gated — they need
+  // is in play. DEEP_DIVE / THE_FRAMEWORK still gated — they need
   // LIT and FEEDBACK which aren't wired up yet.
   1: {
     name: 'Level 1',
-    orders: ['QUICK_STAT', 'FULL_READOUT'],
+    orders: ['STAT_SNAPSHOT', 'INSIGHT_REPORT'],
     activeStations: ['TEMPLATES','INTAKE','COUNTER','DELIVERY','TRASH','DATA_COLLECTION'],
     synthesisActive: false,
     roundDuration: 150,
@@ -350,11 +399,11 @@ const LEVELS = {
     orderTimeLimit: 60,
   },
   // Level 2 shares Level 1's station set for now — the extra recipes will
-  // come online when PSYCH_INSTRUMENT / FRAMEWORK_DECK get rebuilt against
+  // come online when DEEP_DIVE / THE_FRAMEWORK get rebuilt against
   // the single-slot carry model. For now it's just a harder Level 1.
   2: {
     name: 'Level 2',
-    orders: ['QUICK_STAT', 'FULL_READOUT'],
+    orders: ['STAT_SNAPSHOT', 'INSIGHT_REPORT'],
     activeStations: ['TEMPLATES','INTAKE','COUNTER','DELIVERY','TRASH','DATA_COLLECTION'],
     synthesisActive: false,
     roundDuration: 150,
@@ -419,10 +468,11 @@ const TUTORIAL_PROMPTS = {
   '2:2': { both: 'Drop your item on 🧩 counter' },
   '2:3': { both: 'Grab the deck and share out!' },
   '2:4': { both: '🎉 Nice teamwork!' },
-  '3:1': { both: 'Grab 📊 DATA — it goes stale!' },
-  '3:2': { both: 'Rush DATA + TMPL + INTAKE to 🧩 counter' },
-  '3:3': { both: 'Share out the full readout!' },
-  '3:4': { both: '🏆 Tutorial complete!' },
+  '3:1': { both: 'Press ACT at 📊 to start cooking' },
+  '3:2': { both: 'Wait for READY, then ACT to grab!' },
+  '3:3': { both: 'Rush DATA + TMPL + INTAKE to 🧩 counter' },
+  '3:4': { both: 'Share out the full readout!' },
+  '3:5': { both: '🏆 Tutorial complete!' },
 };
 function startTutorial(){
   tutorial.active=true;
@@ -451,11 +501,12 @@ function advanceTutorial(){
   tutorial.stepStart=0;
   tutorial.deliveriesAtStepStart=deliveries;
   tutorial.dropsThisStep={};
-  const counter=fSta('COUNTER');
-  tutorial.counterDropsAtStepStart=counter?counter.items.length:0;
+  const _tCounters=fStaAll('COUNTER');
+  tutorial.counterDropsAtStepStart=_tCounters.reduce((s,c)=>s+c.items.length,0);
   // Simple linear progression through the hard-coded step counts below.
-  // Phase 3 has 4 steps now that Phase E added the DATA stale flow.
-  const phaseSteps={1:8,2:4,3:4};
+  // Phase 3 has 5 steps now — the DATA cook cycle is taught in two beats
+  // (start the cook, then wait and grab when READY).
+  const phaseSteps={1:8,2:4,3:5};
   if(tutorial.step<phaseSteps[tutorial.phase]){
     tutorial.step++;
   }else if(tutorial.phase<3){
@@ -474,8 +525,8 @@ function advanceTutorial(){
 // simplifies "both players did X" checks to "P1 did X".
 function tutorialStepCheck(){
   const ph=tutorial.phase, st=tutorial.step, solo=isTutorialSolo();
-  const counter=fSta('COUNTER');
-  const counterItems=counter?counter.items.map(i=>i.t):[];
+  const _tcAll=fStaAll('COUNTER');
+  const counterItems=_tcAll.flatMap(c=>c.items.map(i=>i.t));
   if(ph===1){
     if(st===1){
       // Movement + ~2s dwell — in solo, only P1 needs to move
@@ -540,23 +591,31 @@ function tutorialStepCheck(){
   }
   if(ph===3){
     if(st===1){
-      // Any player holding a DATA item
+      // Player pressed ACT at DATA_COLLECTION (a DATA item now exists on
+      // the station, since the station starts empty and items only appear
+      // when someone starts a cook).
+      const dc=fSta('DATA_COLLECTION');
+      return !!(dc&&dc.items.some(i=>i.t==='DATA'));
+    }
+    if(st===2){
+      // Any player holding a DATA item — i.e. they waited for READY and
+      // pressed ACT again to pick up.
       const p1Has=p1.carry&&p1.carry.t==='DATA';
       const p2Has=p2.carry&&p2.carry.t==='DATA';
       return solo?p1Has:(p1Has||p2Has);
     }
-    if(st===2){
+    if(st===3){
       // TMPL + RQ + DATA all dropped on counter this step. dropsThisStep
       // tracks drop events so the fast auto-combine doesn't miss them.
       return !!(tutorial.dropsThisStep.TMPL&&
                 tutorial.dropsThisStep.RQ&&
                 tutorial.dropsThisStep.DATA);
     }
-    if(st===3){
+    if(st===4){
       // A delivery happened during this step
       return deliveries>tutorial.deliveriesAtStepStart;
     }
-    if(st===4){
+    if(st===5){
       return tutorial.stepStart>2.5;
     }
   }
@@ -589,39 +648,32 @@ const ITEMS = {
   LIT:  { name: 'Lit Review',     color: '#f0c040', sym: '📚', stackable: true  },
   DONE: { name: 'Polished Deck',  color: '#50b060', sym: '✅', stackable: false },
 };
-// Open-map layout: stations spread evenly across the playfield in a 3x3-ish
-// grid. The five tutorial stations (TEMPLATES, INTAKE, COUNTER, DELIVERY,
-// TRASH) form an evenly-spaced quincunx — corners + center — so the tutorial
-// player walks the whole room. The other four stations (ANALYSIS, SYNTHESIS,
-// FEEDBACK, COPILOT) are kept in the codebase but gated off all levels for
-// now — Phase F rebuilds them against the new single-slot carry model.
+// Station layout: evenly spread across the 12x10 playfield.
+// Source stations (Templates, Intake, Data) around the edges, two counters
+// in the middle area, Shareout and Trash accessible from both sides.
+// Layout reads like a real kitchen: sources → prep → serve.
 const STA=[
-  // Tutorial-visible stations (quincunx)
-  {n:'TEMPLATES',gx:2,gy:2,c:'#aaaaaa',items:[],pt:0,maxQ:6},
+  // Source stations — edges
+  {n:'TEMPLATES',gx:3,gy:2,c:'#aaaaaa',items:[],pt:0,maxQ:6},
   {n:'INTAKE',gx:9,gy:2,c:'#88bbff',items:[],pt:0,maxQ:3},
-  {n:'TRASH',gx:5,gy:4,c:'#cc4444',items:[],pt:0,maxQ:99},
-  {n:'DELIVERY',gx:2,gy:7,c:'#50b060',items:[],pt:0},
-  // COUNTER is a neutral drop surface — players put items on it and it
-  // auto-combines them into a DONE deck when a full recipe is present.
-  // No processing time, no player needs to stand nearby.
-  {n:'COUNTER',gx:9,gy:7,c:'#e0c040',items:[],pt:0,maxQ:8},
-  // DATA_COLLECTION (Phase E): dispenses DATA items that go "stale" a few
-  // seconds after pickup. Players must rush fresh DATA to the COUNTER or
-  // DELIVERY before the timer expires, or it auto-trashes itself. Placed
-  // at (8,4) — same tile as dormant FEEDBACK, which doesn't render while
-  // it's gated out of every level's activeStations.
-  {n:'DATA_COLLECTION',gx:8,gy:4,c:'#40a0e0',items:[],pt:0,maxQ:3},
-  // Gated / dormant stations (not in any level's activeStations right now).
-  // Keep the definitions so sprites/positions are preserved for Phase F.
+  {n:'DATA_COLLECTION',gx:9,gy:5,c:'#40a0e0',items:[],pt:0,maxQ:3},
+  // Prep counters — center area, spread apart so both players can work
+  {n:'COUNTER',gx:3,gy:5,c:'#e0c040',items:[],pt:0,maxQ:8},
+  {n:'COUNTER',gx:7,gy:7,c:'#e0c040',items:[],pt:0,maxQ:8},
+  // Output + discard
+  {n:'DELIVERY',gx:3,gy:8,c:'#50b060',items:[],pt:0},
+  {n:'TRASH',gx:6,gy:4,c:'#cc4444',items:[],pt:0,maxQ:99},
+  // Gated / dormant stations — activated in later levels.
   {n:'ANALYSIS',gx:5,gy:2,c:'#40a0e0',items:[],pt:2.5,lockout:0},
   {n:'COPILOT',gx:2,gy:4,c:'#1abc9c',items:[],pt:3.0,maxQ:1},
-  {n:'FEEDBACK',gx:8,gy:4,c:'#9b59b6',items:[],pt:3.0,maxQ:1},
-  {n:'SYNTHESIS',gx:5,gy:7,c:'#f0c040',items:[],pt:1.2},
+  {n:'FEEDBACK',gx:9,gy:8,c:'#9b59b6',items:[],pt:3.0,maxQ:1},
+  {n:'SYNTHESIS',gx:6,gy:7,c:'#f0c040',items:[],pt:1.2},
 ];
 const SICO={'TEMPLATES':'📋','INTAKE':'❓','ANALYSIS':'🔬','COUNTER':'🧩','DELIVERY':'📤','FEEDBACK':'👔','COPILOT':'🤖','TRASH':'🗑️','SYNTHESIS':'📚','DATA_COLLECTION':'📊'};
 // Display names for station pills (shorter / prettier than raw keys).
 const STA_LABEL={'DATA_COLLECTION':'DATA','DELIVERY':'SHAREOUT'};
 function fSta(n){return STA.find(s=>s.n===n)}
+function fStaAll(n){return STA.filter(s=>s.n===n)}
 // Is this station active in the current level?
 function staActive(s){
   const cfg=LEVELS[currentLevel];
@@ -630,13 +682,21 @@ function staActive(s){
 }
 
 // Game state and tuning constants
-let score=0,deliveries=0,spT=0,tmplT=0,dataT=0;
+let score=0,deliveries=0,spT=0,tmplT=0;
 const RQ_SPAWN_INTERVAL=5, RQ_MAX_QUEUE=3;
 const TMPL_SPAWN_INTERVAL=6, TMPL_MAX_QUEUE=6;
-const DATA_SPAWN_INTERVAL=4, DATA_MAX_QUEUE=3;
-// DATA stale timing: carry-seconds. Yellow warning at WARN, stale at STALE.
-// Stale DATA cannot combine on the counter and auto-spoils at DROP.
-const DATA_STALE_WARN=6, DATA_STALE_CUTOFF=10;
+const DATA_MAX_QUEUE=3;
+// DATA cook cycle (Overcooked burger-patty model): player presses ACT to
+// start a cook. The item's `ct` (cook time) ticks up while it sits on the
+// station AND while it's carried — dropping stale data on the counter
+// refuses the drop and costs -1.
+//   0..COOK  : cooking (progress bar, not pickable)
+//   COOK..WARN: fresh (green READY, pickable)
+//   WARN..STALE: warning (amber GOING STALE, pickable)
+//   STALE+   : stale  (red STALE, pickable but spoils on drop)
+const DATA_COOK_TIME=5;
+const DATA_WARN_TIME=10;
+const DATA_STALE_TIME=15;
 const ANALYSIS_BURN_TIME=8, ANALYSIS_OVERLOAD_LOCKOUT=3;
 const IR=1.8;
 let gamePhase='countdown'; // 'countdown' | 'playing' | 'gameover'
@@ -837,8 +897,8 @@ function dBox(x,y,c){
 // Per-station visual scale overrides for sprite sizing. Default is 1.0x tile
 // width — at TILE_RATIO=1.7 the iso angle matches the desk art, so desks at
 // full tile width sit cleanly inside their tile without poking into walls.
-const STA_SPRITE_SCALE={'TRASH':0.75};
-const STA_DEFAULT_SCALE=1.0;
+const STA_SPRITE_SCALE={'TRASH':0.7,'COUNTER':0.95,'DATA_COLLECTION':0.85,'FEEDBACK':0.85,'COPILOT':0.85};
+const STA_DEFAULT_SCALE=0.95;
 // Two-tone pill label above a station: darker shadow + station-color top fill
 // + handwritten white text. Used for both TRASH and regular stations.
 function drawStaLabel(s,x,dT){
@@ -878,10 +938,7 @@ function dStaSprite(s,x,y){
   const scale=STA_SPRITE_SCALE[s.n]||STA_DEFAULT_SCALE;
   const tw=TW*scale;
   const th=tw*(img.naturalHeight/img.naturalWidth);
-  // Floor shadow: large, soft, two-pass elliptical disc centered on the
-  // tile's bottom corner so the desk reads as sitting on the floor. First
-  // pass is wider+lighter (ambient shadow), second is tighter+darker (contact
-  // shadow at the desk's base).
+  // Floor shadow: large, soft, two-pass elliptical disc
   ctx.save();
   ctx.fillStyle='rgba(0,0,0,0.18)';
   ctx.beginPath();
@@ -892,12 +949,24 @@ function dStaSprite(s,x,y){
   ctx.ellipse(x,y+TH-TH*0.10,tw*0.42,TH*0.28,0,0,Math.PI*2);
   ctx.fill();
   ctx.restore();
+  // Clip sprite so it doesn't poke through the back walls. The wall bottom
+  // edge for the back-left wall is at g2s(0, gy).y+TH/2 and for the
+  // back-right wall at g2s(gx, 0).y+TH/2. Use the higher (smaller Y) of
+  // the two as the clip ceiling — nothing should render above both walls.
+  const wallLeftY=g2s(0,s.gy).y+TH/2;
+  const wallRightY=g2s(s.gx,0).y+TH/2;
+  const clipTop=Math.min(wallLeftY,wallRightY);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0,clipTop,CW*2,CH*2);
+  ctx.clip();
   // Sprite anchored so its bottom edge sits a few px BELOW the tile's bottom
   // corner — that nudges the visible (non-padding) part of the desk down onto
   // the floor and hides the seam between sprite and shadow. Larger drop at
   // flatter (higher) tile ratios since the tile's vertical extent is smaller.
   const dropY=Math.round(TH*0.22);
   ctx.drawImage(img,x-tw/2,y+TH-th+dropY,tw,th);
+  ctx.restore(); // release wall clip
   return true;
 }
 
@@ -941,23 +1010,167 @@ function dSta(s){
     else{ctx.fillStyle='#2c3e50';ctx.fillRect(bx-8,by_-20,16,24);ctx.beginPath();ctx.arc(bx,by_-28,10,0,Math.PI*2);ctx.fillStyle='#f4c89a';ctx.fill();}
     // (bubble drawn above frozen player instead)
   }
+  // Source stations (TEMPLATES, INTAKE) don't show individual item icons —
+  // the station sprite IS the visual. Show a stock count badge instead.
+  if((s.n==='TEMPLATES'||s.n==='INTAKE')&&s.items.length>0){
+    const dT_=y+TH/2-18;
+    ctx.save();
+    ctx.font='bold 12px "Outfit",sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    const bx=x+TW*0.28,by_=dT_+TH*0.45;
+    // Badge background
+    ctx.fillStyle='rgba(0,0,0,0.6)';
+    ctx.beginPath();ctx.arc(bx,by_,10,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#fff';
+    ctx.fillText(s.items.length,bx,by_);
+    ctx.restore();
+  }
   s.items.forEach((it,i)=>{
+    // Skip rendering individual items for source stations
+    if(s.n==='TEMPLATES'||s.n==='INTAKE')return;
     const inf=ITEMS[it.t]||{sym:'?'};
+    // COUNTER items sit visibly on the counter surface — larger sprites
+    // spread across the top, like ingredients on an Overcooked prep counter.
+    if(s.n==='COUNTER'){
+      const spacing=30;
+      const ix=x+(i-(s.items.length-1)/2)*spacing;
+      const iy=dT+TH*0.15; // on the counter top surface
+      const cSpr=CARRY_SPRITES[it.t];
+      const _ri=it.t==='DONE'&&it.recipe?RECIPES[it.recipe]:null;
+      const _isRb=_ri&&_ri.rainbow;
+      ctx.save();
+      // Recipe-colored glow for DONE items
+      if(it.t==='DONE'&&_ri){
+        if(_isRb){
+          const hue=(Date.now()/8)%360;
+          ctx.shadowColor=`hsl(${hue},100%,60%)`;ctx.shadowBlur=16;
+        }else{
+          ctx.shadowColor=_ri.color;ctx.shadowBlur=10;
+        }
+      }
+      if(cSpr&&cSpr.ok){
+        const csz=32;
+        // Small shadow under each item
+        ctx.save();ctx.globalAlpha=0.2;ctx.fillStyle='#000';
+        ctx.beginPath();ctx.ellipse(ix,iy+csz/2+2,csz/2.5,csz/6,0,0,Math.PI*2);ctx.fill();ctx.restore();
+        if(it.t==='DONE'&&_ri){
+          // Use cached tinted deck (or per-frame rainbow)
+          const tinted=_isRb?getRainbowDeck():getTintedDeck(it.recipe);
+          if(tinted)ctx.drawImage(tinted,ix-csz/2,iy-csz/2,csz,csz);
+          else ctx.drawImage(cSpr.img,ix-csz/2,iy-csz/2,csz,csz);
+        }else{
+          ctx.drawImage(cSpr.img,ix-csz/2,iy-csz/2,csz,csz);
+        }
+      }else{
+        ctx.font='18px sans-serif';ctx.textAlign='center';
+        ctx.fillText(inf.sym,ix,iy);
+      }
+      ctx.shadowBlur=0;
+      // DONE decks on the counter show recipe name
+      if(!it.p&&it.t==='DONE'){
+        const _rn=_ri?_ri.name:'Ready';
+        const _rc=_ri?_ri.color:'#4f4';
+        if(_isRb||Math.sin(t*6)>0){
+          ctx.font='bold 10px "Delicious Handrawn","Outfit",sans-serif';
+          ctx.fillStyle=_rc;ctx.textAlign='center';
+          ctx.fillText(_rn,ix,iy-18);
+        }
+      }
+      ctx.restore();
+      return; // skip the default item rendering below
+    }
     const ix=x+(i-(s.items.length-1)/2)*22,ib=dT+TH*.6+36;
     let bob=it.p?Math.abs(Math.sin(t*4+i))*-6:0;
     ctx.save();ctx.font='16px sans-serif';ctx.textAlign='center';
-    ctx.fillText(inf.sym,ix,ib+bob);
-    // Processing bar (still drawn for any future station that cooks things)
-    if(it.p&&s.pt>0){
-      const pc=it.pr/s.pt,bw=26,bh=4,bx=ix-bw/2,by=ib+18;
-      ctx.fillStyle='#222';ctx.fillRect(bx,by,bw,bh);
-      const gr=ctx.createLinearGradient(bx,0,bx+bw,0);gr.addColorStop(0,s.c);gr.addColorStop(1,'#fff');
-      ctx.fillStyle=gr;ctx.fillRect(bx,by,bw*pc,bh);
-    }
-    // Ready indicator — DONE decks on the counter blink to signal "pick me up"
-    if(!it.p&&it.t==='DONE'&&Math.sin(t*6)>0){
-      ctx.font='bold 8px "Outfit",sans-serif';ctx.fillStyle='#4f4';
-      ctx.fillText('READY',ix,ib-12);
+    // DATA on DATA_COLLECTION — state-aware visuals:
+    //   cooking: dimmed icon + amber progress bar
+    //   fresh:   green "Data is ready" bubble (bobbing, soft pulse)
+    //   warn:    yellow "Data is going stale" bubble (pulsing)
+    //   stale:   red "Data is stale" bubble (flashing) + darkened icon
+    if(it.t==='DATA'&&s.n==='DATA_COLLECTION'){
+      const ctv=it.ct||0;
+      const isCook=ctv<DATA_COOK_TIME;
+      const isFresh=ctv>=DATA_COOK_TIME&&ctv<DATA_WARN_TIME;
+      const isWarnS=ctv>=DATA_WARN_TIME&&ctv<DATA_STALE_TIME;
+      const isStaleS=ctv>=DATA_STALE_TIME;
+      const pickBob=(isFresh||isWarnS)?Math.abs(Math.sin(t*5+i))*-5:0;
+      if(isCook)ctx.globalAlpha=0.55;
+      else if(isStaleS)ctx.globalAlpha=0.75;
+      const _dspr=CARRY_SPRITES[it.t];
+      if(_dspr&&_dspr.ok){const _sz=18;ctx.drawImage(_dspr.img,ix-_sz/2,ib-_sz/2+(isCook?0:pickBob)-4,_sz,_sz);}
+      else ctx.fillText(inf.sym,ix,ib+(isCook?0:pickBob));
+      ctx.globalAlpha=1;
+      if(isCook){
+        // Amber cook bar fills from 0 to DATA_COOK_TIME
+        const pc=ctv/DATA_COOK_TIME,bw=30,bh=5,bxp=ix-bw/2,byp=ib+12;
+        ctx.fillStyle='rgba(0,0,0,0.7)';ctx.fillRect(bxp,byp,bw,bh);
+        const gr=ctx.createLinearGradient(bxp,0,bxp+bw,0);
+        gr.addColorStop(0,'#f0c040');gr.addColorStop(1,'#ffe890');
+        ctx.fillStyle=gr;ctx.fillRect(bxp,byp,bw*pc,bh);
+        ctx.strokeStyle='rgba(255,255,255,0.4)';ctx.lineWidth=0.5;ctx.strokeRect(bxp,byp,bw,bh);
+      }else{
+        // Status bubble for fresh / warn / stale — big, obvious speech bubble
+        // that stays persistent (solid, never fades) until the state changes
+        // or the data is picked up. Gentle bob keeps it alive without hiding.
+        let label='',fill='',stroke='';
+        if(isFresh){
+          label='Data is ready';fill='#2fbf4a';stroke='#156a27';
+        }else if(isWarnS){
+          label='Data is going stale';fill='#f0c040';stroke='#8a6810';
+        }else if(isStaleS){
+          label='Data is stale';fill='#e33636';stroke='#6b0f0f';
+        }
+        ctx.save();
+        ctx.font='bold 14px "Delicious Handrawn","Outfit",sans-serif';
+        ctx.textAlign='center';ctx.textBaseline='middle';
+        const padX=10,padY=5;
+        const textW=ctx.measureText(label).width;
+        const bw=textW+padX*2,bh=22;
+        // Soft bob so it feels alive, but opacity stays at full 1.0
+        const bob=Math.sin(t*3+i)*1.5;
+        const bxp=ix-bw/2,byp=ib-38+pickBob+bob;
+        // Drop shadow
+        ctx.fillStyle='rgba(0,0,0,0.35)';
+        ctx.beginPath();ctx.roundRect(bxp+1,byp+3,bw,bh,10);ctx.fill();
+        // Bubble body
+        ctx.fillStyle=fill;
+        ctx.strokeStyle=stroke;ctx.lineWidth=2;
+        ctx.beginPath();ctx.roundRect(bxp,byp,bw,bh,10);ctx.fill();ctx.stroke();
+        // Tail pointing down to the icon
+        ctx.beginPath();
+        ctx.moveTo(ix-5,byp+bh-1);
+        ctx.lineTo(ix,byp+bh+6);
+        ctx.lineTo(ix+5,byp+bh-1);
+        ctx.closePath();
+        ctx.fillStyle=fill;ctx.fill();
+        // Re-stroke just the tail sides (avoid the seam)
+        ctx.beginPath();
+        ctx.moveTo(ix-5,byp+bh-1);
+        ctx.lineTo(ix,byp+bh+6);
+        ctx.lineTo(ix+5,byp+bh-1);
+        ctx.stroke();
+        // Label text with outline
+        ctx.fillStyle='#fff';
+        ctx.strokeStyle='rgba(0,0,0,0.6)';ctx.lineWidth=3;
+        ctx.strokeText(label,ix,byp+bh/2+1);
+        ctx.fillText(label,ix,byp+bh/2+1);
+        ctx.restore();
+      }
+    }else{
+      const _ispr=CARRY_SPRITES[it.t];
+      if(_ispr&&_ispr.ok){const _sz=18;ctx.drawImage(_ispr.img,ix-_sz/2,ib-_sz/2+bob-4,_sz,_sz);}
+      else ctx.fillText(inf.sym,ix,ib+bob);
+      // Processing bar (still drawn for any future station that cooks things)
+      if(it.p&&s.pt>0){
+        const pc=it.pr/s.pt,bw=26,bh=4,bx=ix-bw/2,by=ib+18;
+        ctx.fillStyle='#222';ctx.fillRect(bx,by,bw,bh);
+        const gr=ctx.createLinearGradient(bx,0,bx+bw,0);gr.addColorStop(0,s.c);gr.addColorStop(1,'#fff');
+        ctx.fillStyle=gr;ctx.fillRect(bx,by,bw*pc,bh);
+      }
+      // Ready indicator — DONE decks on the counter blink to signal "pick me up"
+      if(!it.p&&it.t==='DONE'&&Math.sin(t*6)>0){
+        ctx.font='bold 8px "Outfit",sans-serif';ctx.fillStyle='#4f4';
+        ctx.fillText('READY',ix,ib-12);
+      }
     }
     ctx.restore();
   });
@@ -972,64 +1185,101 @@ function dSta(s){
 
 function dPl(p,sp,ok){
   const{x,y}=g2s(p.gx,p.gy);ctx.save();ctx.globalAlpha=.25;ctx.fillStyle='#000';ctx.beginPath();ctx.ellipse(x,y+TH/2+4,22,9,0,0,Math.PI*2);ctx.fill();ctx.restore();
+  // Direction-based carry offset — item appears in front of the player
+  // like they're holding it, not floating above their head.
+  // DIR: DL=0 (front-left), UL=1 (back-left), UR=2 (back-right), DR=3 (front-right)
+  const dirOff=[
+    {dx:-14,dy:6},  // DL: front-left — item lower-left
+    {dx:-12,dy:-8}, // UL: back-left — item upper-left
+    {dx:12,dy:-8},  // UR: back-right — item upper-right
+    {dx:14,dy:6},   // DR: front-right — item lower-right
+  ];
+  const dOff=dirOff[p.dir]||dirOff[0];
+  // Draw carry BEHIND player if facing toward camera (DL/DR), AFTER if facing away
+  const carryInFront=p.dir===DIR.DL||p.dir===DIR.DR;
+  if(p.carry&&!carryInFront)drawCarry(p,x,y,dOff);
   if(ok)ctx.drawImage(sp,p.fr*FW,p.dir*FH,FW,FH,x-DW/2,y+TH/2-DH+10,DW,DH);
   else{ctx.beginPath();ctx.arc(x,y+TH/2,16,0,Math.PI*2);ctx.fillStyle='#f0c040';ctx.fill();}
-  if(p.carry){
-    // Single-slot carry — one icon in a bubble above the player. DONE gets
-    // a green-glow treatment. DATA gets a stale-timing ring: blue while
-    // fresh, yellow after DATA_STALE_WARN, red (flashing) after cutoff.
-    const bob=Math.sin(Date.now()/300)*2;
+  if(p.carry&&carryInFront)drawCarry(p,x,y,dOff);
+}
+function drawCarry(p,x,y,dOff){
+    // Carry item drawn at player's hands, offset by facing direction.
+    const bob=Math.sin(Date.now()/300)*1.5;
     const isDone=p.carry.t==='DONE';
     const isData=p.carry.t==='DATA';
-    const staleT=isData?(p.carry.staleT||0):0;
-    const isStale=isData&&staleT>=DATA_STALE_CUTOFF;
-    const isWarn=isData&&staleT>=DATA_STALE_WARN&&!isStale;
+    const ct=isData?(p.carry.ct||0):0;
+    const isStale=isData&&ct>=DATA_STALE_TIME;
+    const isWarn=isData&&ct>=DATA_WARN_TIME&&!isStale;
     const sym=ITEMS[p.carry.t]?ITEMS[p.carry.t].sym:'?';
-    const cx=x,cy=y-DH*0.55+bob;
+    // Position at hand level, offset by direction
+    const cx=x+dOff.dx,cy=y+TH*0.05+dOff.dy+bob;
     ctx.save();
+    // Small shadow under the carried item
+    ctx.save();ctx.globalAlpha=0.2;ctx.fillStyle='#000';
+    ctx.beginPath();ctx.ellipse(cx,cy+22,14,5,0,0,Math.PI*2);ctx.fill();ctx.restore();
+    // Status glow — per-recipe color for DONE, rainbow for The Framework
+    const recipeInfo=isDone&&p.carry.recipe?RECIPES[p.carry.recipe]:null;
+    const isRainbow=recipeInfo&&recipeInfo.rainbow;
     if(isDone){
-      ctx.shadowColor='#4f4';ctx.shadowBlur=14;
-      ctx.fillStyle='rgba(40,160,60,0.85)';
-      ctx.strokeStyle='#7fff7f';ctx.lineWidth=2;
+      if(isRainbow){
+        // Rainbow unicorn glow — cycles through hues
+        const hue=(Date.now()/8)%360;
+        ctx.shadowColor=`hsl(${hue},100%,60%)`;ctx.shadowBlur=20;
+      }else{
+        ctx.shadowColor=recipeInfo?recipeInfo.color:'#4f4';ctx.shadowBlur=14;
+      }
     }else if(isStale){
-      // Red flashing bubble
       const flash=.5+.5*Math.sin(Date.now()/120);
       ctx.shadowColor='#f44';ctx.shadowBlur=14*flash;
-      ctx.fillStyle='rgba(180,40,40,0.85)';
-      ctx.strokeStyle='#ff6060';ctx.lineWidth=2;
     }else if(isWarn){
       ctx.shadowColor='#f0c040';ctx.shadowBlur=10;
-      ctx.fillStyle='rgba(120,90,20,0.85)';
-      ctx.strokeStyle='#f0c040';ctx.lineWidth=2;
-    }else{
-      ctx.fillStyle='rgba(0,0,0,0.55)';
-      ctx.strokeStyle='#fff8';ctx.lineWidth=1;
     }
-    ctx.beginPath();ctx.arc(cx,cy,14,0,Math.PI*2);ctx.fill();ctx.stroke();
-    ctx.shadowBlur=0;
-    ctx.font='18px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
-    ctx.fillStyle='#fff';
-    ctx.fillText(sym,cx,cy);
-    if(isDone){
-      ctx.font='bold 7px "Press Start 2P",monospace';
+    // Draw carry sprite with per-recipe tint for DONE items
+    const cSprite=CARRY_SPRITES[p.carry.t];
+    if(cSprite&&cSprite.ok){
+      const csz=30;
+      if(isDone&&recipeInfo){
+        // Use cached tinted deck (or per-frame rainbow)
+        const tinted=isRainbow?getRainbowDeck():getTintedDeck(p.carry.recipe);
+        if(tinted)ctx.drawImage(tinted,cx-csz/2,cy-csz/2,csz,csz);
+        else ctx.drawImage(cSprite.img,cx-csz/2,cy-csz/2,csz,csz);
+      }else{
+        ctx.drawImage(cSprite.img,cx-csz/2,cy-csz/2,csz,csz);
+      }
+    }else{
+      // Fallback: colored bubble with emoji
+      if(isDone)ctx.fillStyle=recipeInfo?recipeInfo.color+'d9':'rgba(40,160,60,0.85)';
+      else if(isStale)ctx.fillStyle='rgba(180,40,40,0.85)';
+      else if(isWarn)ctx.fillStyle='rgba(120,90,20,0.85)';
+      else ctx.fillStyle='rgba(0,0,0,0.55)';
+      ctx.strokeStyle='#fff8';ctx.lineWidth=1;
+      ctx.beginPath();ctx.arc(cx,cy,16,0,Math.PI*2);ctx.fill();ctx.stroke();
+      ctx.shadowBlur=0;
+      ctx.font='22px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
       ctx.fillStyle='#fff';
-      ctx.fillText('READY',x,cy-22);
-    }else if(isData){
-      // Fresh arc indicator: full circle at 0, empties as stale approaches
-      const frac=Math.max(0,1-staleT/DATA_STALE_CUTOFF);
+      ctx.fillText(sym,cx,cy);
+    }
+    ctx.shadowBlur=0;
+    // DATA freshness arc around the item
+    if(isData){
+      const frac=Math.max(0,Math.min(1,(DATA_STALE_TIME-ct)/(DATA_STALE_TIME-DATA_COOK_TIME)));
       ctx.beginPath();
-      ctx.arc(cx,cy,17,-Math.PI/2,-Math.PI/2+frac*Math.PI*2);
+      ctx.arc(cx,cy,18,-Math.PI/2,-Math.PI/2+frac*Math.PI*2);
       ctx.strokeStyle=isStale?'#ff6060':(isWarn?'#f0c040':'#40a0e0');
-      ctx.lineWidth=2;
+      ctx.lineWidth=3;
       ctx.stroke();
       if(isStale){
-        ctx.font='bold 7px "Press Start 2P",monospace';
+        ctx.font='bold 9px "Press Start 2P",monospace';ctx.textAlign='center';
         ctx.fillStyle='#ff8080';
-        ctx.fillText('STALE',x,cy-22);
+        ctx.fillText('STALE',cx,cy-28);
       }
     }
+    if(isDone){
+      ctx.font='bold 9px "Press Start 2P",monospace';ctx.textAlign='center';
+      ctx.fillStyle='#fff';
+      ctx.fillText('READY',cx,cy-28);
+    }
     ctx.restore();
-  }
 }
 
 // Single-slot carry model (Phase C): a player holds exactly one item at a
@@ -1054,7 +1304,7 @@ function assignRecipeForRQ(){
 
 // Weighted recipe spawning — quick stats are more frequent than full readouts
 function weightedRecipePick(pool){
-  const weights={QUICK_STAT:3,FULL_READOUT:2,PSYCH_INSTRUMENT:1,FRAMEWORK_DECK:1};
+  const weights={STAT_SNAPSHOT:3,INSIGHT_REPORT:2,DEEP_DIVE:1,THE_FRAMEWORK:1};
   const eligible=pool.filter(r=>RECIPES[r]);
   if(eligible.length===0)return null;
   const total=eligible.reduce((s,r)=>s+(weights[r]||1),0);
@@ -1088,10 +1338,11 @@ function staPriority(s,p){
 function initStations(){
   const tm=fSta('TEMPLATES');
   const ib=fSta('INTAKE');
-  const dc=fSta('DATA_COLLECTION');
   if(tm)for(let i=0;i<3;i++)tm.items.push({t:'TMPL'});
   if(ib)for(let i=0;i<2;i++)ib.items.push({t:'RQ',p:false});
-  if(dc)for(let i=0;i<2;i++)dc.items.push({t:'DATA'});
+  // DATA_COLLECTION starts empty — players press ACT to start cooking data
+  // (Overcooked-style burger-patty mechanic). No pre-fill so the player
+  // always learns the cook cycle explicitly.
 }
 
 // Single-slot interact (Phase C): a player carries exactly one item and
@@ -1135,15 +1386,31 @@ function interact(p){
       return;
     }
     if(nr.n==='DATA_COLLECTION'){
-      // DATA is the stale-sensitive ingredient. Carry starts fresh with
-      // staleT=0; each update frame adds dt. Counter drop/delivery check
-      // the staleness and either combine or auto-spoil.
-      if(nr.items.length>0){
-        nr.items.pop();
-        p.carry={t:'DATA',recipe:null,bonus:0,staleT:0};
-        staFloats.push({gx:nr.gx,gy:nr.gy,text:'📊 fresh!',color:'#40a0e0',life:.8,ml:.8});
+      // Cook cycle (Overcooked burger model):
+      //  - If any item is done cooking (ct >= DATA_COOK_TIME), pick up the
+      //    OLDEST pickable one (the one most in danger of going stale).
+      //  - Otherwise, if there's room on the station, start a new cook by
+      //    pushing a fresh {t:'DATA', ct:0} item.
+      //  - Otherwise the grill is full of still-cooking items — nudge.
+      let oldestIdx=-1,oldestCt=-1;
+      for(let i=0;i<nr.items.length;i++){
+        const it=nr.items[i];
+        if(it.t!=='DATA')continue;
+        const ct=it.ct||0;
+        if(ct>=DATA_COOK_TIME&&ct>oldestCt){oldestCt=ct;oldestIdx=i;}
+      }
+      if(oldestIdx>=0){
+        const it=nr.items.splice(oldestIdx,1)[0];
+        p.carry={t:'DATA',recipe:null,bonus:0,ct:it.ct||0};
+        const msg=it.ct>=DATA_STALE_TIME?'📊 stale!':(it.ct>=DATA_WARN_TIME?'📊 hurry!':'📊 fresh!');
+        const col=it.ct>=DATA_STALE_TIME?'#f44':(it.ct>=DATA_WARN_TIME?'#f0c040':'#40a0e0');
+        staFloats.push({gx:nr.gx,gy:nr.gy,text:msg,color:col,life:.8,ml:.8});
+      }else if(nr.items.length<(nr.maxQ||DATA_MAX_QUEUE)){
+        nr.items.push({t:'DATA',ct:0});
+        staFloats.push({gx:nr.gx,gy:nr.gy,text:'🔥 collecting…',color:'#40a0e0',life:.8,ml:.8});
+        nr.flash='#40a0e0';nr.flashT=.3;
       }else{
-        staFloats.push({gx:nr.gx,gy:nr.gy,text:'(no data)',color:'#888',life:.8,ml:.8});
+        staFloats.push({gx:nr.gx,gy:nr.gy,text:'(still cooking)',color:'#888',life:.8,ml:.8});
       }
       return;
     }
@@ -1195,9 +1462,9 @@ function interact(p){
   // ingredients into a DONE deck.
   if(nr.n==='COUNTER'){
     // Stale DATA: refuse the drop, auto-spoil with amber floater and -1.
-    if(carry.t==='DATA'&&(carry.staleT||0)>=DATA_STALE_CUTOFF){
+    if(carry.t==='DATA'&&(carry.ct||0)>=DATA_STALE_TIME){
       score=Math.max(0,score-1);
-      staFloats.push({gx:nr.gx,gy:nr.gy,text:'🗑️ spoiled data',color:'#cc8844',life:1.2,ml:1.2});
+      staFloats.push({gx:nr.gx,gy:nr.gy,text:'🗑️ stale data',color:'#cc8844',life:1.2,ml:1.2});
       nr.flash='#cc8844';nr.flashT=.4;
       p.carry=null;return;
     }
@@ -1385,18 +1652,32 @@ function update(){
   if(tm&&staActive(tm)&&tmplT>=TMPL_SPAWN_INTERVAL&&tm.items.length<TMPL_MAX_QUEUE){
     tm.items.push({t:'TMPL'});tmplT=0;
   }
-  // DATA spawning at DATA_COLLECTION
-  dataT+=.016;
+  // DATA cook cycle — tick ct on every DATA item sitting on DATA_COLLECTION
+  // and fire a state-transition float when an item crosses the COOK / WARN /
+  // STALE lines. No auto-spawn: items only exist after a player presses ACT.
   const dc=fSta('DATA_COLLECTION');
-  if(dc&&staActive(dc)&&dataT>=DATA_SPAWN_INTERVAL&&dc.items.length<DATA_MAX_QUEUE){
-    dc.items.push({t:'DATA'});dataT=0;
+  if(dc&&staActive(dc)){
+    for(const it of dc.items){
+      if(it.t!=='DATA')continue;
+      const prev=it.ct||0;
+      it.ct=prev+.016;
+      if(prev<DATA_COOK_TIME&&it.ct>=DATA_COOK_TIME){
+        staFloats.push({gx:dc.gx,gy:dc.gy,text:'📊 Data is done!',color:'#4f4',life:1.4,ml:1.4});
+        dc.flash='#4f4';dc.flashT=.4;
+      }else if(prev<DATA_WARN_TIME&&it.ct>=DATA_WARN_TIME){
+        staFloats.push({gx:dc.gx,gy:dc.gy,text:'⚠️ Going stale!',color:'#f0c040',life:1.4,ml:1.4});
+        dc.flash='#f0c040';dc.flashT=.4;
+      }else if(prev<DATA_STALE_TIME&&it.ct>=DATA_STALE_TIME){
+        staFloats.push({gx:dc.gx,gy:dc.gy,text:'❌ Data is stale',color:'#f44',life:1.4,ml:1.4});
+        dc.flash='#f44';dc.flashT=.4;
+      }
+    }
   }
-  // Tick stale timer on any carried DATA. When it passes the cutoff, the
-  // next counter drop / delivery auto-spoils it for -1; the render shows
-  // a yellow warning at DATA_STALE_WARN and red stale state at cutoff.
+  // Tick ct on any carried DATA — the cook timer keeps running once picked
+  // up, so there's real urgency to get it to the counter before it stales.
   for(const pl of [p1,p2]){
     if(pl.carry&&pl.carry.t==='DATA'){
-      pl.carry.staleT=(pl.carry.staleT||0)+.016;
+      pl.carry.ct=(pl.carry.ct||0)+.016;
     }
   }
 
@@ -1433,9 +1714,9 @@ function update(){
     if(!hintTemplateFired&&hintTemplateTimer>5&&!p1.carry&&!p2.carry){
       hintTemplateFired=true;hintTemplateGlow=3;
     }
-    const counter=fSta('COUNTER');
-    const counterHasTmpl=counter&&counter.items.some(i=>i.t==='TMPL');
-    const counterHasRq=counter&&counter.items.some(i=>i.t==='RQ');
+    const _allC=fStaAll('COUNTER');
+    const counterHasTmpl=_allC.some(c=>c.items.some(i=>i.t==='TMPL'));
+    const counterHasRq=_allC.some(c=>c.items.some(i=>i.t==='RQ'));
     if(counterHasTmpl&&!counterHasRq)hintBuilderTimer+=.016; else hintBuilderTimer=0;
     if(!hintBuilderFired&&hintBuilderTimer>4){
       hintBuilderFired=true;hintBuilderGlow=3;
@@ -1584,7 +1865,7 @@ function render(){
     }
     // Also leave room for the small phase/step indicator
     ctx.font='bold 12px "Outfit",sans-serif';
-    const phaseSteps={1:8,2:4,3:4};
+    const phaseSteps={1:8,2:4,3:5};
     const total=phaseSteps[tutorial.phase]||1;
     const phaseTxt='Phase '+tutorial.phase+' · Step '+tutorial.step+'/'+total;
     const phaseW=ctx.measureText(phaseTxt).width;
@@ -1676,7 +1957,7 @@ function resetGame(level){
   // Reset players to opposite sides of the open map
   p1.gx=3;p1.gy=5;p1.vx=0;p1.vy=0;p1.carry=null;p1.fr=0;p1.dir=DIR.DL;
   p2.gx=8;p2.gy=5;p2.vx=0;p2.vy=0;p2.carry=null;p2.fr=0;p2.dir=DIR.DL;
-  spT=0;tmplT=0;dataT=0;fbFrozen=null;
+  spT=0;tmplT=0;fbFrozen=null;
   particles.length=0;staFloats.length=0;
   // Reset tutorial hint state
   hintTemplateFired=false;hintTemplateTimer=0;hintTemplateGlow=0;
@@ -1821,37 +2102,39 @@ function botThink() {
   // placeholder-broken until Phase F — so this is deliberately simple.
   const tm = fSta('TEMPLATES');
   const intake = fSta('INTAKE');
-  const counter = fSta('COUNTER');
+  const counters = fStaAll('COUNTER');
   const del = fSta('DELIVERY');
+  // Find nearest counter to bot, and any counter with a DONE deck
+  const nearC = counters.sort((a,b)=>gd(p2.gx,p2.gy,a.gx,a.gy)-gd(p2.gx,p2.gy,b.gx,b.gy))[0];
+  const doneC = counters.find(c=>c.items.some(i=>i.t==='DONE'));
+  const anyHasTmpl = counters.some(c=>c.items.some(i=>i.t==='TMPL'));
+  const anyHasRq = counters.some(c=>c.items.some(i=>i.t==='RQ'));
 
   if (p2.carry) {
     if (p2.carry.t === 'DONE') {
       botState = 'DELIVER';
       if (del) botNavigate(del.gx + 0.5, del.gy + 0.5);
     } else {
-      // Any non-DONE carry goes to the counter
+      // Any non-DONE carry goes to the nearest counter
       botState = 'DROP_AT_COUNTER';
-      if (counter) botNavigate(counter.gx + 0.5, counter.gy + 0.5);
+      if (nearC) botNavigate(nearC.gx + 0.5, nearC.gy + 0.5);
     }
   } else {
     // Empty-handed decision tree
-    const counterHasDone = counter && counter.items.some(i => i.t === 'DONE');
-    const counterHasTmpl = counter && counter.items.some(i => i.t === 'TMPL');
-    const counterHasRq = counter && counter.items.some(i => i.t === 'RQ');
-    if (counterHasDone) {
+    if (doneC) {
       botState = 'PICKUP_DONE';
-      botNavigate(counter.gx + 0.5, counter.gy + 0.5);
-    } else if (!counterHasTmpl && tm && tm.items.length > 0) {
+      botNavigate(doneC.gx + 0.5, doneC.gy + 0.5);
+    } else if (!anyHasTmpl && tm && tm.items.length > 0) {
       botState = 'FETCH_TMPL';
       botNavigate(tm.gx + 0.5, tm.gy + 0.5);
-    } else if (!counterHasRq && intake && intake.items.length > 0) {
+    } else if (!anyHasRq && intake && intake.items.length > 0) {
       botState = 'FETCH_RQ';
       botNavigate(intake.gx + 0.5, intake.gy + 0.5);
     } else {
       botState = 'IDLE';
-      if (counter) {
-        const idleDist = gd(p2.gx, p2.gy, counter.gx + 1.3, counter.gy + 0.5);
-        if (idleDist > 1.5) botNavigate(counter.gx + 1.3, counter.gy + 0.5);
+      if (nearC) {
+        const idleDist = gd(p2.gx, p2.gy, nearC.gx + 1.3, nearC.gy + 0.5);
+        if (idleDist > 1.5) botNavigate(nearC.gx + 1.3, nearC.gy + 0.5);
       }
     }
   }
