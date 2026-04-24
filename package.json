@@ -1,12 +1,32 @@
 {
-  "name": "insight-kitchen-server",
-  "version": "1.0.0",
-  "description": "WebSocket relay server for Insight Kitchen (BeSci Overcooked)",
-  "main": "server.js",
+  "name": "insight-kitchen",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
   "scripts": {
-    "start": "node server.js"
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "relay": "node server.js",
+    "tile:owner": "node scripts/tile-sprites.mjs --in assets/monkey_raw.png --out public/assets/owner.png",
+    "tile:employee": "node scripts/tile-sprites.mjs --in assets/employee_raw.png --out public/assets/employee.png"
   },
   "dependencies": {
-    "ws": "^8.16.0"
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.5.0",
+    "@react-three/rapier": "^2.2.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "three": "^0.175.0",
+    "zustand": "^5.0.12"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@types/three": "^0.175.0",
+    "@vitejs/plugin-react": "^4.5.2",
+    "sharp": "^0.34.5",
+    "typescript": "~5.8.3",
+    "vite": "^6.3.2"
   }
 }
