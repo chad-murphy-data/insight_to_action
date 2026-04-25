@@ -36,6 +36,7 @@ export interface Order {
   recipe: string
   timeLimit: number
   elapsed: number
+  untimed?: boolean
 }
 
 // ─── Float text ───
@@ -147,6 +148,9 @@ interface GameState {
   connected: boolean
   roomCode: string | null
 
+  // Tutorial intro gate (skip 3-2-1 on tutorial; player dismisses welcome)
+  welcomeDismissed: boolean
+
   // Actions
   actions: {
     setPhase: (phase: GamePhase) => void
@@ -161,6 +165,7 @@ interface GameState {
     setRole: (role: Role) => void
     setConnected: (connected: boolean) => void
     setRoomCode: (code: string | null) => void
+    dismissWelcome: () => void
     getSerializedState: () => object
     applyRemoteState: (data: any) => void
   }
@@ -277,6 +282,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   connected: false,
   roomCode: null,
 
+  welcomeDismissed: true,
+
   actions: {
     setPhase: (phase) => set({ gamePhase: phase }),
     setLevel: (level) => set({ currentLevel: level }),
@@ -290,10 +297,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       compileWalls(lvl)
 
       // Pre-stock stations
-      const templates = findStation(stations, 'TEMPLATES')
-      if (templates) {
-        for (let i = 0; i < 3; i++) templates.items.push({ t: 'TMPL' })
-      }
       const intake = findStation(stations, 'INTAKE')
       if (intake) {
         intake.items.push({ t: 'RQ', p: false })
@@ -315,12 +318,15 @@ export const useGameStore = create<GameState>((set, get) => ({
         rqSpawnTimer: 0,
         tmplSpawnTimer: 0,
         floatTexts: [],
+        welcomeDismissed: lvl !== 0,
       })
     },
 
     tick: (dt: number) => {
       const state = get()
       if (state.gamePhase === 'countdown') {
+        // Pause countdown while tutorial welcome modal is up
+        if (state.currentLevel === 0 && !state.welcomeDismissed) return
         const newTimer = state.countdownTimer - dt
         if (newTimer <= -1) {
           set({ gamePhase: 'playing', countdownTimer: 0 })
@@ -350,14 +356,6 @@ export const useGameStore = create<GameState>((set, get) => ({
         rqSpawnTimer = 0
       }
 
-      // TMPL spawning at TEMPLATES
-      tmplSpawnTimer += dt
-      const templates = findStation(stations, 'TEMPLATES')
-      if (templates && isStationActive('TEMPLATES', state.currentLevel) && tmplSpawnTimer >= TMPL_SPAWN_INTERVAL && templates.items.length < TMPL_MAX_QUEUE) {
-        templates.items.push({ t: 'TMPL' })
-        tmplSpawnTimer = 0
-      }
-
       // DATA cook timers
       const dcStations = findAllStations(stations, 'DATA_COLLECTION')
       for (const dc of dcStations) {
@@ -385,20 +383,27 @@ export const useGameStore = create<GameState>((set, get) => ({
       if (p1c?.t === 'DATA') p1c.ct = (p1c.ct || 0) + dt
       if (p2c?.t === 'DATA') p2c.ct = (p2c.ct || 0) + dt
 
-      // Order spawning
+      // Order spawning. In tutorial we only run one order at a time so the
+      // player can focus, and the very first order is untimed.
       orderTimer += dt
       const maxO = cfg.maxOrders || 3
       const limO = cfg.orderTimeLimit || 60
-      if ((orders.length === 0 || orderTimer >= ORDER_INTERVAL) && orders.length < maxO) {
+      const isTutorial = state.currentLevel === 0
+      const shouldSpawn = isTutorial
+        ? orders.length === 0
+        : ((orders.length === 0 || orderTimer >= ORDER_INTERVAL) && orders.length < maxO)
+      if (shouldSpawn) {
         const recipe = weightedRecipePick(cfg.orders)
         if (recipe) {
-          orders.push({ id: Date.now() + Math.random(), recipe, timeLimit: limO, elapsed: 0 })
+          const untimed = isTutorial && state.deliveries === 0
+          orders.push({ id: Date.now() + Math.random(), recipe, timeLimit: limO, elapsed: 0, untimed })
           orderTimer = 0
         }
       }
 
-      // Order expiry
+      // Order expiry — untimed orders never expire.
       for (let i = orders.length - 1; i >= 0; i--) {
+        if (orders[i].untimed) continue
         orders[i].elapsed += dt
         if (orders[i].elapsed >= orders[i].timeLimit) {
           score = Math.max(0, score - 1)
@@ -464,12 +469,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       // ── PICKUP (no carry) ──
       if (!getCarry()) {
         if (nearest.name === 'TEMPLATES') {
-          if (nearest.items.length > 0) {
-            nearest.items.pop()
-            setCarry({ t: 'TMPL', recipe: null, bonus: 0 })
-          } else {
-            addFloat(nearest.gx, nearest.gy, '(empty)', '#888', 0.8)
-          }
+          // Infinite supply — templates always available
+          setCarry({ t: 'TMPL', recipe: null, bonus: 0 })
         } else if (nearest.name === 'INTAKE') {
           if (nearest.items.length > 0) {
             nearest.items.pop()
@@ -619,6 +620,11 @@ export const useGameStore = create<GameState>((set, get) => ({
     setRole: (role) => set({ role }),
     setConnected: (connected) => set({ connected }),
     setRoomCode: (code) => set({ roomCode: code }),
+
+    dismissWelcome: () => {
+      // Skip the 3-2-1 countdown entirely for tutorial — go straight to playing.
+      set({ welcomeDismissed: true, gamePhase: 'playing', countdownTimer: 0 })
+    },
 
     getSerializedState: () => {
       const s = get()

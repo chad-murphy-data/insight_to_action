@@ -1,15 +1,17 @@
 import { useRef, useMemo, Suspense } from 'react'
 import { RigidBody, CuboidCollider } from '@react-three/rapier'
-import { useGameStore, getWallSegments, getStationLabel, getStationIcon } from '../store/gameStore'
+import { useGameStore, getWallSegments } from '../store/gameStore'
 import { GRID_COLS, GRID_ROWS, TILE_SIZE } from '../data/constants'
 import { LEVELS } from '../data/levels'
 import { Text, Billboard, useTexture } from '@react-three/drei'
-import { STATION_SPRITES, CARRY_SPRITES } from '../data/sprites'
+import { STATION_SPRITES, CARRY_SPRITES, NAMEPLATE_SPRITES, BADGE_SPRITES } from '../data/sprites'
 import * as THREE from 'three'
 
-// Preload station + carry sprites
+// Preload station + carry + nameplate + badge sprites
 Object.values(STATION_SPRITES).forEach(path => useTexture.preload(path))
 Object.values(CARRY_SPRITES).forEach(path => useTexture.preload(path))
+Object.values(NAMEPLATE_SPRITES).forEach(path => useTexture.preload(path))
+Object.values(BADGE_SPRITES).forEach(path => useTexture.preload(path))
 
 // ─── Procedural wood texture ───
 function createWoodTexture(): THREE.CanvasTexture {
@@ -179,10 +181,25 @@ function BoundaryWalls() {
       {walls.map((wall) => (
         <group key={wall.id}>
           {wall.facing === 'viewer' ? (
-            /* Viewer-facing walls: explicit physics collider only, no mesh */
-            <RigidBody type="fixed" colliders={false} position={wall.pos}>
-              <CuboidCollider args={[wall.size[0] / 2, wall.size[1] / 2, wall.size[2] / 2]} />
-            </RigidBody>
+            /* Viewer-facing walls: half-height office partition (camera sees over) */
+            <>
+              <RigidBody type="fixed" colliders="cuboid">
+                <mesh position={[wall.pos[0], wallH * 0.25, wall.pos[2]]} castShadow>
+                  <boxGeometry args={[wall.size[0], wallH * 0.5, wall.size[2]]} />
+                  <meshStandardMaterial color={WALL_COLOR} />
+                </mesh>
+              </RigidBody>
+              {/* Top cap trim */}
+              <mesh position={[wall.pos[0], wallH * 0.5 + 0.025, wall.pos[2]]}>
+                <boxGeometry args={[wall.size[0] + 0.05, 0.05, wall.size[2] + 0.05]} />
+                <meshStandardMaterial color={WALL_TRIM} />
+              </mesh>
+              {/* Baseboard */}
+              <mesh position={[wall.pos[0], 0.1, wall.pos[2]]}>
+                <boxGeometry args={[wall.size[0] + 0.05, 0.2, wall.size[2] + 0.05]} />
+                <meshStandardMaterial color={WALL_TRIM} />
+              </mesh>
+            </>
           ) : (
             /* Back walls: full visual */
             <>
@@ -394,13 +411,11 @@ function InteriorWalls() {
 }
 
 // ─── Station sprite billboard (grounded, shorter than player) ───
-const STATION_SPRITE_SIZE = TILE_SIZE * 1.0
+const STATION_SPRITE_SIZE = TILE_SIZE * 1.2
 
 function StationSpriteImg({ path, flash, flashT }: { path: string; flash: string | null; flashT: number }) {
   const texture = useTexture(path)
-  // Tint white normally; flash to the flash color while flashT > 0
   const tint = flashT > 0 && flash ? flash : '#ffffff'
-  // anchorY bottom: sprite sits on ground (y = half height)
   return (
     <Billboard position={[0, STATION_SPRITE_SIZE * 0.5, 0]}>
       <mesh>
@@ -411,8 +426,56 @@ function StationSpriteImg({ path, flash, flashT }: { path: string; flash: string
   )
 }
 
+// ─── Nameplate billboard (hanging-sign sprite above each station) ───
+function NameplateSprite({ path }: { path: string }) {
+  const texture = useTexture(path)
+  return (
+    <Billboard position={[0, STATION_SPRITE_SIZE * 1.55, 0]}>
+      <mesh>
+        <planeGeometry args={[2.3, 2.3]} />
+        <meshBasicMaterial map={texture} transparent />
+      </mesh>
+    </Billboard>
+  )
+}
+
+// ─── Data-station state badge (READY / STALE / cooking steam) ───
+function DataStationBadge({ items }: { items: any[] }) {
+  const dataItems = items.filter(i => i.t === 'DATA' && i.ct !== undefined)
+  if (dataItems.length === 0) return null
+  const cts = dataItems.map(i => i.ct || 0)
+  const hasReady = cts.some(ct => ct >= 5 && ct < 15)
+  const hasStale = cts.some(ct => ct >= 15)
+  const hasCooking = cts.some(ct => ct < 5)
+
+  let path: string | null = null
+  if (hasReady) path = BADGE_SPRITES.READY
+  else if (hasStale) path = BADGE_SPRITES.STALE
+  else if (hasCooking) path = BADGE_SPRITES.STEAM
+  if (!path) return null
+
+  return (
+    <Suspense fallback={null}>
+      <BadgeSpriteImg path={path} />
+    </Suspense>
+  )
+}
+
+function BadgeSpriteImg({ path }: { path: string }) {
+  const texture = useTexture(path)
+  return (
+    <Billboard position={[0, STATION_SPRITE_SIZE * 1.0, 0]}>
+      <mesh>
+        <planeGeometry args={[0.95, 0.95]} />
+        <meshBasicMaterial map={texture} transparent />
+      </mesh>
+    </Billboard>
+  )
+}
+
 // ─── Counter item sprite (shows carry sprite on counter surface) ───
-const COUNTER_ITEM_SIZE = 0.65
+// Matches CARRY_SIZE so items don't shrink when dropped on a counter.
+const COUNTER_ITEM_SIZE = 1.1
 
 function CounterItemSprite({ path, position }: { path: string; position: [number, number, number] }) {
   const texture = useTexture(path)
@@ -433,10 +496,9 @@ function StationBox({ name, gx, gy, color, items, flash, flashT }: {
 }) {
   const cx = (gx + 0.5) * TILE_SIZE
   const cz = (gy + 0.5) * TILE_SIZE
-  const icon = getStationIcon(name)
-  const label = getStationLabel(name)
   const spritePath = STATION_SPRITES[name]
-  const displayColor = flashT > 0 && flash ? flash : color
+  const nameplatePath = NAMEPLATE_SPRITES[name]
+  void color
   const itemCount = items.length
 
   return (
@@ -453,15 +515,18 @@ function StationBox({ name, gx, gy, color, items, flash, flashT }: {
         </Suspense>
       )}
 
-      {/* Label */}
-      <Billboard position={[0, STATION_SPRITE_SIZE * 0.85, 0]}>
-        <Text fontSize={0.35} color="white" anchorX="center" anchorY="middle" outlineWidth={0.03} outlineColor="black">
-          {icon} {label}
-        </Text>
-      </Billboard>
+      {/* Hanging-sign nameplate (replaces 3D text label) */}
+      {nameplatePath && (
+        <Suspense fallback={null}>
+          <NameplateSprite path={nameplatePath} />
+        </Suspense>
+      )}
+
+      {/* Data-station state badge: steam while cooking, READY when fresh, STALE when overdone */}
+      {name === 'DATA_COLLECTION' && <DataStationBadge items={items} />}
 
       {/* Item count badge */}
-      {itemCount > 0 && name !== 'COUNTER' && (
+      {itemCount > 0 && name !== 'COUNTER' && name !== 'TEMPLATES' && (
         <Billboard position={[0.7, STATION_SPRITE_SIZE * 0.7, 0.7]}>
           <Text fontSize={0.25} color="#fff" anchorX="center" anchorY="middle"
             outlineWidth={0.04} outlineColor="#000">
@@ -474,8 +539,8 @@ function StationBox({ name, gx, gy, color, items, flash, flashT }: {
       {name === 'COUNTER' && items.map((item, i) => {
         const sprPath = CARRY_SPRITES[item.t]
         // Spread items in a row on top of counter sprite
-        const offsetX = (i - (items.length - 1) / 2) * 0.55
-        const yPos = STATION_SPRITE_SIZE * 0.65
+        const offsetX = (i - (items.length - 1) / 2) * 0.75
+        const yPos = STATION_SPRITE_SIZE * 0.7
         if (sprPath) {
           return (
             <Suspense key={i} fallback={null}>

@@ -21,6 +21,35 @@ export const CARRY_SPRITES: Record<string, string> = {
   DONE: '/assets/carry_deck.png',
 }
 
+// Hanging-sign nameplates (replace 3D text labels above each station)
+export const NAMEPLATE_SPRITES: Record<string, string> = {
+  TEMPLATES: '/assets/sprites/templates_sign.png',
+  INTAKE: '/assets/sprites/intake_sign.png',
+  DATA_COLLECTION: '/assets/sprites/data_sign.png',
+  COUNTER: '/assets/sprites/counter_sign.png',
+  DELIVERY: '/assets/sprites/shareout_sign.png',
+  TRASH: '/assets/sprites/trash_sign.png',
+  ANALYSIS: '/assets/sprites/analysis_sign.png',
+  SYNTHESIS: '/assets/sprites/synthesis_sign.png',
+  FEEDBACK: '/assets/sprites/feedback_sign.png',
+  COPILOT: '/assets/sprites/copilot_sign.png',
+}
+
+// Recipe icons (replace emoji in HUD order cards)
+export const RECIPE_ICONS: Record<string, string> = {
+  STAT_SNAPSHOT: '/assets/sprites/snapshot_recipe.png',
+  INSIGHT_REPORT: '/assets/sprites/snapshot_insight.png',
+  DEEP_DIVE: '/assets/sprites/snapshot_deepdive.png',
+  THE_FRAMEWORK: '/assets/sprites/snapshot_framework.png',
+}
+
+// Data-station state badges + steam particle
+export const BADGE_SPRITES = {
+  READY: '/assets/sprites/ready.png',
+  STALE: '/assets/sprites/stale.png',
+  STEAM: '/assets/sprites/steam_puf.png',
+}
+
 // Character sprite paths
 export const CHARACTER_SPRITES = {
   P1: '/assets/owner.png',

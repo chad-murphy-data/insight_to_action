@@ -24,7 +24,7 @@ const FH = 112    // frame pixel height
 const AFPS = 10   // animation frames per second
 
 // Sprite display size in world units (aspect ratio preserved)
-const SPRITE_H = 2.6
+const SPRITE_H = 2.86
 const SPRITE_W = SPRITE_H * (FW / FH)
 
 // Direction rows: DL=0, UL=1, UR=2, DR=3
@@ -183,7 +183,7 @@ export default function Player({ index, color, startGx, startGy }: PlayerProps) 
 
       if (isP1) {
         if (role === null || role === 'host') {
-          up = !!keys['w']; down = !!keys['s']; left = !!keys['a']; right = !!keys['d']
+          up = !!keys['arrowup']; down = !!keys['arrowdown']; left = !!keys['arrowleft']; right = !!keys['arrowright']
           actPressed = !!justPressed[' ']
         }
       } else {

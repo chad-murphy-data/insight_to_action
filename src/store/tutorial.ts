@@ -30,26 +30,37 @@ export const tutorial: TutorialState = {
 
 // Prompts keyed "phase:step"
 export const TUTORIAL_PROMPTS: Record<string, { both: string; p1?: string; p2?: string; solo?: string }> = {
-  '1:1': { both: 'Move with WASD' },
-  '1:2': { both: 'Grab a 📋 template' },
-  '1:3': { both: 'Drop it on the 🧩 counter' },
-  '1:4': { both: 'Grab an ❓ intake card' },
-  '1:5': { both: 'Drop it on the counter!' },
-  '1:6': { both: 'Grab the ✅ finished deck' },
-  '1:7': { both: 'Share out at 📤 SHAREOUT!' },
-  '1:8': { both: '🎉 Great! Try it together…' },
-  '2:1': { both: 'DIVIDE AND CONQUER', p1: 'P1: TEMPLATE runner 📋', p2: 'P2: INTAKE runner ❓', solo: 'Solo test: run both jobs' },
-  '2:2': { both: 'Drop your item on 🧩 counter' },
-  '2:3': { both: 'Grab the deck and share out!' },
-  '2:4': { both: '🎉 Nice teamwork!' },
-  '3:1': { both: 'Press ACT at 📊 to start cooking' },
-  '3:2': { both: 'Wait for READY, then ACT to grab!' },
-  '3:3': { both: 'Rush DATA + TMPL + INTAKE to 🧩 counter' },
-  '3:4': { both: 'Share out the full readout!' },
-  '3:5': { both: '🏆 Tutorial complete!' },
+  // Phase 1 — solo basics with first untimed order
+  '1:1': { both: "Here's where you'll learn what type of deck you're building. See what pieces it needs? Let's go get them." },
+  '1:2': { both: "Every great deck starts with a template — walk to TEMPLATES and grab one." },
+  '1:3': { both: "Bring it to a counter — that's where decks come together." },
+  '1:4': { both: "Now you'll need an intake question. Head to INTAKE and pick one up." },
+  '1:5': { both: "Drop the intake on the same counter — watch what happens…" },
+  '1:6': { both: "Boom — a finished deck! Pick it up and let's deliver it." },
+  '1:7': { both: "Take it to SHAREOUT to land your first insight." },
+  '1:8': { both: "Here's the catch — at Insight Kitchen you have to move fast. If a deck isn't delivered in time, it falls off the radar and you lose the credit." },
+  '1:9': { both: "Nice work! Now let's bring in a teammate." },
+
+  // Phase 2 — teamwork
+  '2:1': {
+    both: "Time to divide and conquer.",
+    p1: "P1, you're on TEMPLATES.",
+    p2: "P2, you're on INTAKE.",
+    solo: "Flying solo? You'll cover both.",
+  },
+  '2:2': { both: "Drop your item on the counter — combine and conquer!" },
+  '2:3': { both: "Grab the finished deck and share it out!" },
+  '2:4': { both: "Beautiful teamwork." },
+
+  // Phase 3 — data collection
+  '3:1': { both: "Some recipes need data. Press SPACE at DATA_COLLECTION to start cooking." },
+  '3:2': { both: "Give it a few seconds. Wait for READY, then grab it before it goes stale." },
+  '3:3': { both: "Now we're cooking. Bring template, intake, AND data to a counter." },
+  '3:4': { both: "Share out the full readout!" },
+  '3:5': { both: "Tutorial complete. You're ready for the real thing." },
 }
 
-const PHASE_STEPS: Record<number, number> = { 1: 8, 2: 4, 3: 5 }
+const PHASE_STEPS: Record<number, number> = { 1: 9, 2: 4, 3: 5 }
 
 function isSolo(): boolean {
   const role = useGameStore.getState().role
@@ -105,22 +116,20 @@ function stepCheck(): boolean {
   const p2v = Math.abs(playerState.p2.x) + Math.abs(playerState.p2.z) > 0.1
 
   if (ph === 1) {
-    if (st === 1) {
-      // Check movement via velocity proxy — just check if position changes
-      if (p1v) tutorial.movementSeenP1 = true
-      if (p2v) tutorial.movementSeenP2 = true
-      return solo
-        ? tutorial.movementSeenP1 && tutorial.stepStart > 2
-        : tutorial.movementSeenP1 && tutorial.movementSeenP2 && tutorial.stepStart > 2
-    }
+    // 1:1 is the recipe-card intro — auto-advance after a read beat (player can roam during this).
+    if (st === 1) return tutorial.stepStart > 4
     if (st === 2) return !!(solo ? state.p1Carry?.t === 'TMPL' : (state.p1Carry?.t === 'TMPL' || state.p2Carry?.t === 'TMPL'))
     if (st === 3) return counterItems.includes('TMPL')
     if (st === 4) return !!(solo ? state.p1Carry?.t === 'RQ' : (state.p1Carry?.t === 'RQ' || state.p2Carry?.t === 'RQ'))
     if (st === 5) return counterItems.includes('DONE')
     if (st === 6) return !!(solo ? state.p1Carry?.t === 'DONE' : (state.p1Carry?.t === 'DONE' || state.p2Carry?.t === 'DONE'))
     if (st === 7) return state.deliveries > tutorial.deliveriesAtStepStart
-    if (st === 8) return tutorial.stepStart > 2.5
+    // 1:8 is the timer-intro beat — gives the player time to read the new ticking timer.
+    if (st === 8) return tutorial.stepStart > 5
+    if (st === 9) return tutorial.stepStart > 2.5
   }
+  // suppress unused-var warnings from old movement check
+  void p1v; void p2v;
   if (ph === 2) {
     if (st === 1) return tutorial.stepStart > 3
     if (st === 2) return !!(tutorial.dropsThisStep.TMPL && tutorial.dropsThisStep.RQ)
